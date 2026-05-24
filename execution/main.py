@@ -7,8 +7,12 @@ sys.path.insert(0, os.path.dirname(__file__))
 from scraper_autoscout24 import scrape_autoscout24
 from scraper_subito import scrape_subito
 from scraper_mobile import scrape_mobile
+from scraper_autouncle import scrape_autouncle
+from scraper_catawiki import scrape_catawiki
+from scraper_motostoriche import scrape_motostoriche
 from scraper_aste import scrape_aste
 from sheets_writer import write_listings, write_auctions
+from scorer import score_listing
 from utils import MAX_PRICE, YEAR_MIN, YEAR_MAX
 
 
@@ -59,10 +63,19 @@ def main():
     all_listings += run_scraper("AutoScout24", scrape_autoscout24)
     all_listings += run_scraper("Subito.it", scrape_subito)
     all_listings += run_scraper("AutoScout24.de", scrape_mobile)
+    all_listings += run_scraper("AutoUncle", scrape_autouncle)
+    all_listings += run_scraper("Catawiki", scrape_catawiki)
+    all_listings += run_scraper("ClassicTrader", scrape_motostoriche)
 
     filtered = filter_listings(all_listings)
     unique = deduplicate(filtered)
-    unique.sort(key=lambda x: x.get("price", 999999))
+
+    # Apply value score (1-10) to each listing
+    for listing in unique:
+        listing["score"] = score_listing(listing)
+
+    # Sort by score descending (best first), then by price ascending
+    unique.sort(key=lambda x: (-x.get("score", 0), x.get("price", 999999)))
 
     print(f"\n📊 Annunci:")
     print(f"  Scraped:          {len(all_listings)}")

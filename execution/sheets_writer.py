@@ -24,7 +24,7 @@ AUCTIONS_HEADERS = [
 LISTINGS_HEADERS = [
     "#", "Data", "Piattaforma", "Marca", "Modello", "Anno",
     "Prezzo (€)", "Km", "Città", "Dist. Bergamo (km)",
-    "Titolo", "Condizioni", "Link", "Venditore", "ID",
+    "Score", "Titolo", "Condizioni", "Link", "Venditore", "ID",
 ]
 
 CONTACTS_HEADERS = [
@@ -76,7 +76,7 @@ def _setup_sheets(spreadsheet):
     seen_ws = _get_or_create(spreadsheet, SHEET_SEEN)
 
     if not listings_ws.row_values(1):
-        listings_ws.update("A1:O1", [LISTINGS_HEADERS])
+        listings_ws.update("A1:P1", [LISTINGS_HEADERS])
         _format_header(listings_ws, len(LISTINGS_HEADERS))
         listings_ws.freeze(rows=1)
 
@@ -146,6 +146,7 @@ def _listing_to_row(listing):
         km_str,
         listing.get("city", ""),
         dist_str,
+        listing.get("score", ""),
         listing.get("title", ""),
         listing.get("condition", ""),
         listing.get("url", ""),
@@ -217,6 +218,29 @@ def write_listings(listings, spreadsheet_id):
 
     for i in range(len(rows)):
         listings_ws.update_cell(current_row + i + 1, 1, current_row + i)
+
+    # Colora la colonna Score (K) in base al valore
+    try:
+        from scorer import score_color
+        format_requests = []
+        for i, listing in enumerate(new_listings):
+            score = listing.get("score", 0) or 0
+            if not score:
+                continue
+            row_idx = current_row + i + 1
+            format_requests.append({
+                "range": f"K{row_idx}",
+                "format": {
+                    "backgroundColor": score_color(score),
+                    "textFormat": {"bold": True},
+                    "horizontalAlignment": "CENTER",
+                },
+            })
+        # Batch format in chunks
+        for req in format_requests:
+            listings_ws.format(req["range"], req["format"])
+    except Exception as e:
+        print(f"  Score color formatting skipped: {e}")
 
     seen_ws.append_rows(new_ids)
     dashboard_ws.update("B3", [[datetime.now().strftime("%d/%m/%Y %H:%M")]])
