@@ -2,7 +2,7 @@
 
 ## North Star
 Trovare automaticamente annunci di BMW E36, Audi B5 e Mercedes 190E
-immatricolate tra il 1991 e il 1996, entro 150 km da Bergamo, a meno di €6.000.
+immatricolate tra il 1991 e il 1996, entro 300 km da Bergamo, a meno di €6.000.
 
 ## Schema Dati
 
@@ -14,7 +14,7 @@ immatricolate tra il 1991 e il 1996, entro 150 km da Bergamo, a meno di €6.000
   "year_from": 1991,
   "year_to": 1996,
   "max_price": 6000,
-  "radius_km": 150,
+  "radius_km": 300,
   "center": { "lat": 45.6983, "lon": 9.6773 }
 }
 ```
@@ -44,7 +44,7 @@ immatricolate tra il 1991 e il 1996, entro 150 km da Bergamo, a meno di €6.000
 
 - **Anno**: solo 1991–1996 inclusi (30–35 anni fa dal 2026)
 - **Prezzo**: massimo €6.000 (annunci senza prezzo = scartati)
-- **Distanza**: massimo 150 km da Bergamo (45.6983°N, 9.6773°E)
+- **Distanza**: massimo 300 km da Bergamo (45.6983°N, 9.6773°E)
 - **Modelli target**: BMW E36 (Serie 3), Audi B5 (80/A4), Mercedes 190E (W201)
 - **Duplicati**: un listing_id per annuncio — mai scrivere lo stesso due volte
 - **Frequenza**: ogni 6 ore via GitHub Actions (gratuito)

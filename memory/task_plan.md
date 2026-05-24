@@ -2,7 +2,7 @@
 
 ## Obiettivo
 Sistema automatico di ricerca auto storiche (BMW E36 / Audi B5 / Mercedes 190E)
-entro 150km da Bergamo, prezzo ≤ €6.000, anno 1991–1996.
+entro 300km da Bergamo, prezzo ≤ €6.000, anno 1991–1996.
 
 ## Fasi
 
