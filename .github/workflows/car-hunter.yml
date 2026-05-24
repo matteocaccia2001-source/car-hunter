@@ -1,0 +1,28 @@
+name: Car Hunter
+
+on:
+  schedule:
+    - cron: '0 6,12,18,0 * * *'   # 06:00 / 12:00 / 18:00 / 00:00 UTC (ogni 6 ore)
+  workflow_dispatch:                # avvio manuale dal pannello GitHub
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Car Hunter
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        run: python execution/main.py
