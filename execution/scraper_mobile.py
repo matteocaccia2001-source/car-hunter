@@ -9,121 +9,151 @@ from utils import (
     MAX_DISTANCE_KM, MAX_PRICE, YEAR_MIN, YEAR_MAX,
 )
 
+# Mobile.de blocks standard scrapers with 403.
+# Using AutoScout24 Germany (autoscout24.de) which is more permissive
+# and lists Italian/Swiss/Austrian cars too within EU.
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept-Language": "it-IT,it;q=0.9,en;q=0.8",
-    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept-Language": "de-DE,de;q=0.9,it;q=0.8,en;q=0.7",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Referer": "https://www.autoscout24.de/",
 }
 
-# Mobile.de make/model IDs
 SEARCHES = [
-    {"make_id": "3500",  "model_id": "16",  "make": "BMW",           "model": "Serie 3 (E36)", "year_from": YEAR_MIN, "year_to": YEAR_MAX, "label": "BMW E36"},
-    {"make_id": "1900",  "model_id": "92",  "make": "Audi",          "model": "80",            "year_from": YEAR_MIN, "year_to": 1996,     "label": "Audi B4/B5"},
-    {"make_id": "1900",  "model_id": "77",  "make": "Audi",          "model": "A4",            "year_from": 1994,     "year_to": YEAR_MAX, "label": "Audi B5"},
-    {"make_id": "17200", "model_id": "19",  "make": "Mercedes-Benz", "model": "190 (W201)",    "year_from": YEAR_MIN, "year_to": 1993,     "label": "Mercedes 190E"},
+    {"make": "bmw",           "model": "serie-3",  "year_from": YEAR_MIN, "year_to": YEAR_MAX, "label": "BMW E36"},
+    {"make": "audi",          "model": "80",        "year_from": YEAR_MIN, "year_to": 1996,     "label": "Audi B4/B5"},
+    {"make": "mercedes-benz", "model": "190",       "year_from": YEAR_MIN, "year_to": 1993,     "label": "Mercedes 190E"},
 ]
 
 
 def _build_url(search, page):
+    # AutoScout24.de — search Italy (cy=I) so listings are near Bergamo
     return (
-        "https://suchen.mobile.de/fahrzeuge/search.html?"
-        "dam=0&isSearchRequest=true"
-        f"&makeModelVariant1.makeId={search['make_id']}"
-        f"&makeModelVariant1.modelId={search['model_id']}"
-        f"&minFirstRegistrationDate={search['year_from']}-01"
-        f"&maxFirstRegistrationDate={search['year_to']}-12"
-        f"&maxPrice={MAX_PRICE}"
-        "&scopeId=C&cn=I"  # Italy
-        f"&pageNumber={page}"
+        f"https://www.autoscout24.de/lst/{search['make']}/{search['model']}"
+        f"?atype=C&cy=I&damaged_listing=exclude"
+        f"&fregfrom={search['year_from']}&fregto={search['year_to']}"
+        f"&priceto={MAX_PRICE}&sort=standard&ustate=N%2CU"
+        f"&page={page}"
     )
 
 
-def _parse_listing(item, search):
-    try:
-        title_el = item.select_one("h2.title, h3.title, .headline-block h2, .headline-block h3")
-        price_el = item.select_one(".price-block .price-default, .price-primary, [class*='price']")
-        location_el = item.select_one(".seller-info, .seller-address, [class*='seller']")
-        link_el = item.select_one("a[href]")
-
-        if not title_el or not link_el:
-            return None
-
-        title = title_el.get_text(strip=True)
-        price_text = price_el.get_text(strip=True) if price_el else ""
-        price = parse_price(price_text)
-
-        if not price or price > MAX_PRICE:
-            return None
-
-        href = link_el["href"]
-        url = href if href.startswith("http") else "https://suchen.mobile.de" + href
-
-        location_text = location_el.get_text(strip=True) if location_el else ""
-        lat, lon = geocode_city(location_text)
-        dist = distance_from_bergamo(lat, lon)
-
-        if dist is not None and dist > MAX_DISTANCE_KM:
-            return None
-
-        return {
-            "source": "Mobile.de",
-            "title": title,
-            "make": search["make"],
-            "model": search["model"],
-            "year": search["year_from"],
-            "price": price,
-            "km": 0,
-            "city": location_text,
-            "distance_km": dist,
-            "condition": "Usato",
-            "url": url,
-            "seller": "",
-            "phone": "",
-            "listing_id": make_listing_id(url, title, price),
-            "found_at": datetime.now().isoformat(),
-            "label": search["label"],
-        }
-    except Exception as e:
-        print(f"  Mobile.de item error: {e}")
-        return None
-
-
 def scrape_mobile():
+    """Scrape AutoScout24.de for additional Italian listings."""
     results = []
     session = requests.Session()
     session.headers.update(HEADERS)
 
     for search in SEARCHES:
-        print(f"  Mobile.de → {search['label']}...")
+        label = search["label"]
+        print(f"  AutoScout24.de → {label}...")
+
         for page in range(1, 4):
             try:
                 url = _build_url(search, page)
-                resp = session.get(url, timeout=20)
+                resp = session.get(url, timeout=25)
                 resp.raise_for_status()
                 soup = BeautifulSoup(resp.text, "html.parser")
 
-                items = soup.select("div.result-item, article[data-ad-id], li.result-item")
-                if not items:
+                import json
+                script = soup.find("script", id="__NEXT_DATA__")
+                if not script:
                     break
 
+                data = json.loads(script.string)
+
+                def find_list(d, depth=0):
+                    if depth > 6 or not isinstance(d, (dict, list)):
+                        return []
+                    if isinstance(d, list) and d and isinstance(d[0], dict):
+                        if any(k in d[0] for k in ["vehicle", "pricing", "price", "url", "guid"]):
+                            return d
+                    if isinstance(d, dict):
+                        for k in ["listings", "ads", "items", "results", "vehicles"]:
+                            if k in d:
+                                r = find_list(d[k], depth + 1)
+                                if r:
+                                    return r
+                        for v in d.values():
+                            r = find_list(v, depth + 1)
+                            if r:
+                                return r
+                    return []
+
+                raw_items = find_list(data)
                 page_count = 0
-                for item in items:
-                    parsed = _parse_listing(item, search)
-                    if parsed:
-                        results.append(parsed)
-                        page_count += 1
 
-                print(f"    page {page}: {page_count} listings")
-                if len(items) < 10:
+                for item in raw_items:
+                    try:
+                        vehicle = item.get("vehicle", {}) or {}
+                        pricing = item.get("pricing", {}) or {}
+                        location = item.get("location", {}) or {}
+
+                        price = int(pricing.get("price", {}).get("raw", 0) or
+                                    item.get("price", 0) or 0)
+                        if not price or price > MAX_PRICE:
+                            continue
+
+                        year = int(vehicle.get("firstRegistrationYear", 0) or 0)
+                        if year and not (YEAR_MIN <= year <= YEAR_MAX):
+                            continue
+
+                        km = int(vehicle.get("mileage", {}).get("raw", 0) or 0)
+                        city = location.get("city", "") or ""
+                        lat = location.get("latitude")
+                        lon = location.get("longitude")
+
+                        if lat and lon:
+                            dist = distance_from_bergamo(float(lat), float(lon))
+                        else:
+                            lat, lon = geocode_city(city)
+                            dist = distance_from_bergamo(lat, lon)
+
+                        if dist is not None and dist > MAX_DISTANCE_KM:
+                            continue
+
+                        url_listing = item.get("url", "") or ""
+                        if url_listing and not url_listing.startswith("http"):
+                            url_listing = "https://www.autoscout24.de" + url_listing
+
+                        make = vehicle.get("make", "") or ""
+                        model = vehicle.get("model", "") or ""
+                        title = f"{make} {model} {year}".strip()
+
+                        results.append({
+                            "source": "AutoScout24.de",
+                            "title": title,
+                            "make": make,
+                            "model": model,
+                            "year": year,
+                            "price": price,
+                            "km": km,
+                            "city": city,
+                            "distance_km": dist,
+                            "condition": "Usato",
+                            "url": url_listing,
+                            "seller": "",
+                            "phone": "",
+                            "listing_id": make_listing_id(url_listing, title, price),
+                            "found_at": datetime.now().isoformat(),
+                            "label": label,
+                        })
+                        page_count += 1
+                    except Exception as e:
+                        print(f"      AS24.de item error: {e}")
+
+                print(f"    page {page}: {page_count} valid listings")
+                if not raw_items:
                     break
 
-                time.sleep(random.uniform(3, 5))
+                time.sleep(random.uniform(2, 4))
 
             except Exception as e:
-                print(f"    Mobile.de error (page {page}): {e}")
+                print(f"    AS24.de error (page {page}): {e}")
                 break
 
-        time.sleep(random.uniform(4, 7))
+        time.sleep(random.uniform(3, 5))
 
     return results

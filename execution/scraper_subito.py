@@ -1,144 +1,143 @@
 import requests
+from bs4 import BeautifulSoup
 import time
 import random
+import re
 from datetime import datetime
 
 from utils import (
     geocode_city, distance_from_bergamo, make_listing_id, parse_price, parse_km,
-    MAX_DISTANCE_KM, MAX_PRICE, YEAR_MIN, YEAR_MAX, BERGAMO_LAT, BERGAMO_LON,
+    MAX_DISTANCE_KM, MAX_PRICE, YEAR_MIN, YEAR_MAX,
 )
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept": "application/json",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept-Language": "it-IT,it;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Referer": "https://www.subito.it/",
 }
 
 SEARCHES = [
-    {"query": "bmw e36",       "label": "BMW E36",       "make": "BMW",       "model": "E36"},
-    {"query": "bmw serie 3",   "label": "BMW E36",       "make": "BMW",       "model": "Serie 3"},
-    {"query": "audi 80",       "label": "Audi B4/B5",    "make": "Audi",      "model": "80"},
-    {"query": "audi a4 1994",  "label": "Audi B5",       "make": "Audi",      "model": "A4"},
-    {"query": "mercedes 190e", "label": "Mercedes 190E", "make": "Mercedes",  "model": "190E"},
-    {"query": "mercedes w201", "label": "Mercedes 190E", "make": "Mercedes",  "model": "190E"},
+    {"query": "bmw e36",       "label": "BMW E36",       "make": "BMW",      "model": "E36"},
+    {"query": "bmw 316 318",   "label": "BMW E36",       "make": "BMW",      "model": "E36"},
+    {"query": "audi 80",       "label": "Audi B4/B5",    "make": "Audi",     "model": "80"},
+    {"query": "audi a4 1994",  "label": "Audi B5",       "make": "Audi",     "model": "A4"},
+    {"query": "mercedes 190e", "label": "Mercedes 190E", "make": "Mercedes", "model": "190E"},
+    {"query": "mercedes w201", "label": "Mercedes 190E", "make": "Mercedes", "model": "190E"},
 ]
 
 
-def _fetch_page(query, start=0):
-    params = {
-        "c": "2",
-        "t": "s",
-        "q": query,
-        "lim": "100",
-        "start": str(start),
-        "geo_radius": str(MAX_DISTANCE_KM),
-        "lat": str(BERGAMO_LAT),
-        "lon": str(BERGAMO_LON),
-    }
-    resp = requests.get(
-        "https://api.subito.it/sbt/v1/search/items/",
-        params=params,
-        headers=HEADERS,
-        timeout=15,
-    )
+def _extract_year(text):
+    """Extract 4-digit year from text."""
+    if not text:
+        return 0
+    m = re.search(r'\b(199[0-9]|200[0-6])\b', text)
+    return int(m.group(1)) if m else 0
+
+
+def _scrape_page(query, page=1):
+    url = "https://www.subito.it/annunci-italia/vendita/auto/"
+    params = {"q": query, "o": page}
+    resp = requests.get(url, params=params, headers=HEADERS, timeout=20)
     resp.raise_for_status()
-    return resp.json()
+    return BeautifulSoup(resp.text, "html.parser")
 
 
-def _parse_item(item, label):
-    try:
-        prices = item.get("prices", [])
-        price_raw = prices[0].get("value", "0") if prices else "0"
-        price = parse_price(price_raw)
-        if not price or price > MAX_PRICE:
-            return None
+def _parse_items(soup, label):
+    results = []
 
-        features = {}
-        for f in item.get("features", []):
-            vals = f.get("values", [])
-            if vals:
-                features[f.get("uri", "")] = vals[0].get("key", "")
+    # Subito.it wraps each listing in a div/article with class containing "item-card"
+    items = (
+        soup.select("div[class*='item-card']")
+        or soup.select("article[class*='item']")
+        or soup.select(".items--wrap > div > div")
+    )
 
-        year = int(features.get("/anno", 0) or 0)
-        if year and not (YEAR_MIN <= year <= YEAR_MAX):
-            return None
+    if not items:
+        # Last resort: find all links to /annuncio/
+        items = [a.parent.parent for a in soup.select("a[href*='/annuncio/']")]
 
-        km = parse_km(features.get("/chilometraggio", "0") or "0")
+    for item in items:
+        try:
+            link_el = item.select_one("a[href*='/annuncio/']") or item.select_one("a[href]")
+            title_el = item.select_one("h2, h3, [class*='title']")
+            price_el = item.select_one("[class*='price']")
+            city_el = item.select_one("[class*='town'], [class*='city'], [class*='location']")
 
-        geo = item.get("geo", {})
-        lat = geo.get("lat")
-        lon = geo.get("lon")
-        locations = item.get("locations", [])
-        city = locations[0].get("value", "") if locations else ""
+            if not title_el:
+                continue
 
-        if lat and lon:
-            dist = distance_from_bergamo(float(lat), float(lon))
-        else:
+            title = title_el.get_text(strip=True)
+            price = parse_price(price_el.get_text(strip=True) if price_el else "")
+            if not price or price > MAX_PRICE:
+                continue
+
+            # Try to get year from title or description
+            year = _extract_year(title) or _extract_year(item.get_text())
+            if year and not (YEAR_MIN <= year <= YEAR_MAX):
+                continue
+
+            url = link_el["href"] if link_el else ""
+            if url and not url.startswith("http"):
+                url = "https://www.subito.it" + url
+
+            city = city_el.get_text(strip=True) if city_el else ""
             lat, lon = geocode_city(city)
             dist = distance_from_bergamo(lat, lon)
+            if dist is not None and dist > MAX_DISTANCE_KM:
+                continue
 
-        if dist is not None and dist > MAX_DISTANCE_KM:
-            return None
+            results.append({
+                "source": "Subito.it",
+                "title": title,
+                "make": label.split()[0],
+                "model": label.split()[-1] if len(label.split()) > 1 else "",
+                "year": year,
+                "price": price,
+                "km": 0,
+                "city": city,
+                "distance_km": dist,
+                "condition": "Usato",
+                "url": url,
+                "seller": "",
+                "phone": "",
+                "listing_id": make_listing_id(url, title, price),
+                "found_at": datetime.now().isoformat(),
+                "label": label,
+            })
+        except Exception as e:
+            print(f"      Subito item error: {e}")
 
-        urls = item.get("urls", {})
-        url = urls.get("default", "") or urls.get("desktop", "")
-        title = item.get("subject", "")
-        advertiser = item.get("advertiser", {})
-
-        return {
-            "source": "Subito.it",
-            "title": title,
-            "make": label.split()[0],
-            "model": label.split()[-1] if len(label.split()) > 1 else "",
-            "year": year,
-            "price": price,
-            "km": km,
-            "city": city,
-            "distance_km": dist,
-            "condition": features.get("/condizioni", "Usato"),
-            "url": url,
-            "seller": advertiser.get("name", ""),
-            "phone": advertiser.get("phone", ""),
-            "listing_id": make_listing_id(url, title, price),
-            "found_at": datetime.now().isoformat(),
-            "label": label,
-        }
-    except Exception as e:
-        print(f"  Subito item parse error: {e}")
-        return None
+    return results
 
 
 def _scrape_query(query, label):
     results = []
-    start = 0
-    while True:
+    for page in range(1, 6):
         try:
-            data = _fetch_page(query, start)
-            items = data.get("ads", [])
-            if not items:
+            soup = _scrape_page(query, page)
+            items = _parse_items(soup, label)
+            print(f"    page {page}: {len(items)} listings")
+            results.extend(items)
+            if len(items) < 5:
                 break
-            for item in items:
-                parsed = _parse_item(item, label)
-                if parsed:
-                    results.append(parsed)
-            if len(items) < 100:
-                break
-            start += 100
-            time.sleep(random.uniform(1, 2))
+            time.sleep(random.uniform(2, 3))
         except Exception as e:
-            print(f"  Subito.it error ('{query}'): {e}")
+            print(f"    Subito error ('{query}', page {page}): {e}")
             break
     return results
 
 
 def scrape_subito():
     results = []
-    seen_labels = set()
+    seen_queries = set()
     for search in SEARCHES:
-        label = search["label"]
+        if search["query"] in seen_queries:
+            continue
+        seen_queries.add(search["query"])
         print(f"  Subito.it → {search['query']}...")
-        found = _scrape_query(search["query"], label)
+        found = _scrape_query(search["query"], search["label"])
         results.extend(found)
-        print(f"    {len(found)} listings")
-        time.sleep(random.uniform(2, 3))
+        time.sleep(random.uniform(2, 4))
     return results
