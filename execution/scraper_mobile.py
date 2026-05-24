@@ -5,7 +5,7 @@ import random
 from datetime import datetime
 
 from utils import (
-    geocode_city, distance_from_bergamo, make_listing_id, parse_price, parse_km,
+    geocode_city, distance_from_bergamo, make_listing_id, parse_price, parse_km, safe_int,
     MAX_DISTANCE_KM, MAX_PRICE, YEAR_MIN, YEAR_MAX,
 )
 
@@ -23,16 +23,16 @@ HEADERS = {
 }
 
 SEARCHES = [
-    {"make": "bmw",           "model": "serie-3",  "year_from": YEAR_MIN, "year_to": YEAR_MAX, "label": "BMW E36"},
-    {"make": "audi",          "model": "80",        "year_from": YEAR_MIN, "year_to": 1996,     "label": "Audi B4/B5"},
-    {"make": "mercedes-benz", "model": "190",       "year_from": YEAR_MIN, "year_to": 1993,     "label": "Mercedes 190E"},
+    {"make": "bmw",           "year_from": YEAR_MIN, "year_to": YEAR_MAX, "label": "BMW E36"},
+    {"make": "audi",          "year_from": YEAR_MIN, "year_to": YEAR_MAX, "label": "Audi B4/B5"},
+    {"make": "mercedes-benz", "year_from": YEAR_MIN, "year_to": 1993,     "label": "Mercedes 190E"},
 ]
 
 
 def _build_url(search, page):
-    # AutoScout24.de — search Italy (cy=I) so listings are near Bergamo
+    # Ricerca per sola marca (nessun model slug) — evita 404 per slug errati
     return (
-        f"https://www.autoscout24.de/lst/{search['make']}/{search['model']}"
+        f"https://www.autoscout24.de/lst/{search['make']}"
         f"?atype=C&cy=I&damaged_listing=exclude"
         f"&fregfrom={search['year_from']}&fregto={search['year_to']}"
         f"&priceto={MAX_PRICE}&sort=standard&ustate=N%2CU"
@@ -91,16 +91,24 @@ def scrape_mobile():
                         pricing = item.get("pricing", {}) or {}
                         location = item.get("location", {}) or {}
 
-                        price = int(pricing.get("price", {}).get("raw", 0) or
-                                    item.get("price", 0) or 0)
+                        pricing = item.get("pricing", {}) or item.get("prices", {}) or {}
+                        price = (
+                            safe_int(pricing.get("price", {}).get("raw") if isinstance(pricing.get("price"), dict) else pricing.get("price"))
+                            or safe_int(pricing.get("public", {}).get("priceRaw") if isinstance(pricing.get("public"), dict) else 0)
+                            or safe_int(item.get("price") or item.get("priceRaw") or 0)
+                        )
                         if not price or price > MAX_PRICE:
                             continue
 
-                        year = int(vehicle.get("firstRegistrationYear", 0) or 0)
+                        year = safe_int(
+                            vehicle.get("firstRegistration", {}).get("year") if isinstance(vehicle.get("firstRegistration"), dict) else None
+                            or vehicle.get("firstRegistrationYear") or 0
+                        )
                         if year and not (YEAR_MIN <= year <= YEAR_MAX):
                             continue
 
-                        km = int(vehicle.get("mileage", {}).get("raw", 0) or 0)
+                        ml = vehicle.get("mileage", {})
+                        km = safe_int(ml.get("value") or ml.get("raw") if isinstance(ml, dict) else ml or 0)
                         city = location.get("city", "") or ""
                         lat = location.get("latitude")
                         lon = location.get("longitude")

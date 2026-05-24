@@ -70,3 +70,19 @@ def parse_km(text):
         return 0
     digits = "".join(c for c in str(text) if c.isdigit())
     return int(digits) if digits else 0
+
+
+def safe_int(val, dict_keys=("raw", "value", "priceRaw", "amount", "price", "year")):
+    """Convert int/float/str/dict to int safely — handles AutoScout24's nested dicts."""
+    if val is None:
+        return 0
+    if isinstance(val, (int, float)):
+        return int(val)
+    if isinstance(val, str):
+        digits = "".join(c for c in val if c.isdigit())
+        return int(digits) if digits else 0
+    if isinstance(val, dict):
+        for k in dict_keys:
+            if k in val:
+                return safe_int(val[k], dict_keys)
+    return 0
