@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from scraper_autoscout24 import scrape_autoscout24
 from scraper_subito import scrape_subito
+from scraper_bakeca import scrape_bakeca
 from scraper_mobile import scrape_mobile
 from scraper_aste import scrape_aste
 from sheets_writer import write_listings, write_auctions
@@ -58,7 +59,8 @@ def main():
     all_listings = []
     all_listings += run_scraper("AutoScout24", scrape_autoscout24)
     all_listings += run_scraper("Subito.it", scrape_subito)
-    all_listings += run_scraper("Mobile.de", scrape_mobile)
+    all_listings += run_scraper("Bakeca.it", scrape_bakeca)
+    all_listings += run_scraper("AutoScout24.de", scrape_mobile)
 
     filtered = filter_listings(all_listings)
     unique = deduplicate(filtered)
