@@ -51,47 +51,67 @@ def _fetch_via_scraperapi(target_url):
     return resp.text
 
 
-def _parse_subito(html, search):
+def _parse_subito(html, search, debug=False):
     results = []
     soup = BeautifulSoup(html, "html.parser")
 
-    # Multiple selectors — Subito.it changes class names periodically
+    # Subito.it 2026: usa CSS Modules → article.index-module_card__XXXX
     items = (
-        soup.select("div[class*='item-card']")
-        or soup.select("article[class*='item']")
-        or soup.select("div.items--wrap > div > div")
+        soup.select("article[class*='card']")
+        or soup.select("article")
     )
 
-    if not items:
-        # Fallback: any link to an /annuncio/
-        anchors = soup.select("a[href*='/annunci/'], a[href*='/vi/']")
-        items = list({a.find_parent("article") or a.find_parent("div") for a in anchors})
-        items = [x for x in items if x is not None]
-
-    for item in items:
+    for idx, item in enumerate(items):
         try:
-            link_el = item.select_one("a[href*='/annunci/'], a[href*='/vi/'], a[href]")
-            title_el = item.select_one("h2, h3, [class*='item-title'], [class*='title']")
-            price_el = item.select_one("[class*='price'], [class*='prezzo']")
-            city_el = item.select_one("[class*='town'], [class*='city'], [class*='location']")
-
-            if not title_el:
+            # Skip non-listing articles (header banners, etc.) — listing items have a price
+            text = item.get_text(" ", strip=True)
+            if "€" not in text:
                 continue
 
-            title = title_el.get_text(strip=True)
-            price = parse_price(price_el.get_text(strip=True) if price_el else "")
-            if not price or price > MAX_PRICE:
-                continue
-
-            year = _extract_year(title) or _extract_year(item.get_text())
-            if year and not (YEAR_MIN <= year <= YEAR_MAX):
-                continue
-
+            link_el = item.select_one("a[href*='/vi/'], a[href*='/annunci/'], a[href*='/annuncio/'], a[href]")
             url = link_el["href"] if link_el and link_el.has_attr("href") else ""
             if url and not url.startswith("http"):
                 url = "https://www.subito.it" + url
 
+            # Title
+            title_el = (
+                item.select_one("h2")
+                or item.select_one("h3")
+                or item.select_one("[class*='item-title']")
+                or item.select_one("[class*='title']")
+            )
+            title = title_el.get_text(strip=True) if title_el else ""
+            if not title:
+                # Try alt of image
+                img = item.select_one("img[alt]")
+                title = img["alt"] if img else ""
+            if not title:
+                continue
+
+            # Price — element first, regex fallback
+            price = 0
+            price_el = item.select_one("[class*='price'], [class*='Price']")
+            if price_el:
+                price = parse_price(price_el.get_text(strip=True))
+            if not price:
+                m = re.search(r'(\d{1,2}[\.\s]?\d{3})\s*€', text)
+                if m:
+                    price = int(m.group(1).replace(".", "").replace(" ", ""))
+            if not price or price > MAX_PRICE:
+                continue
+
+            # Year
+            year = _extract_year(title) or _extract_year(text)
+            if year and not (YEAR_MIN <= year <= YEAR_MAX):
+                continue
+
+            # City
+            city_el = item.select_one("[class*='town'], [class*='city'], [class*='location'], [class*='geo']")
             city = city_el.get_text(strip=True) if city_el else ""
+
+            if debug and idx < 2:
+                print(f"      [debug item {idx}] title={title[:50]} price={price} year={year} city={city}")
+
             lat, lon = geocode_city(city)
             dist = distance_from_bergamo(lat, lon)
             if dist is not None and dist > MAX_DISTANCE_KM:
@@ -149,7 +169,7 @@ def scrape_subito():
                         if found[0].get("class"):
                             print(f"    [debug]   first match classes: {found[0]['class']}")
                 first = False
-            items = _parse_subito(html, search)
+            items = _parse_subito(html, search, debug=(search == SEARCHES[0]))
             print(f"    {len(items)} listings")
             results.extend(items)
         except Exception as e:

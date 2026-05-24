@@ -1,17 +1,19 @@
+"""
+AutoScout24.de — copertura supplementare per auto Italiane registrate sul portale tedesco.
+Stessa struttura JSON di AutoScout24.it.
+"""
 import requests
 from bs4 import BeautifulSoup
+import json
 import time
 import random
+import re
 from datetime import datetime
 
 from utils import (
     geocode_city, distance_from_bergamo, make_listing_id, parse_price, parse_km, safe_int,
     MAX_DISTANCE_KM, MAX_PRICE, YEAR_MIN, YEAR_MAX,
 )
-
-# Mobile.de blocks standard scrapers with 403.
-# Using AutoScout24 Germany (autoscout24.de) which is more permissive
-# and lists Italian/Swiss/Austrian cars too within EU.
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -30,7 +32,6 @@ SEARCHES = [
 
 
 def _build_url(search, page):
-    # Ricerca per sola marca (nessun model slug) — evita 404 per slug errati
     return (
         f"https://www.autoscout24.de/lst/{search['make']}"
         f"?atype=C&cy=I&damaged_listing=exclude"
@@ -40,8 +41,60 @@ def _build_url(search, page):
     )
 
 
+def _find_listings(data, depth=0):
+    if depth > 6 or not isinstance(data, (dict, list)):
+        return []
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        if any(k in data[0] for k in ["vehicle", "price", "url", "guid", "id"]):
+            return data
+    if isinstance(data, dict):
+        for k in ["listings", "ads", "items", "results", "vehicles"]:
+            if k in data:
+                r = _find_listings(data[k], depth + 1)
+                if r:
+                    return r
+        for v in data.values():
+            r = _find_listings(v, depth + 1)
+            if r:
+                return r
+    return []
+
+
+def _get_price(item):
+    p = item.get("price")
+    if isinstance(p, dict):
+        for k in ["priceRaw", "priceValue", "raw", "value"]:
+            v = safe_int(p.get(k))
+            if v: return v
+        return parse_price(p.get("priceFormatted") or "")
+    return safe_int(p)
+
+
+def _get_year(item):
+    vehicle = item.get("vehicle", {}) or {}
+    for c in [vehicle.get("firstRegistrationDate"), vehicle.get("firstRegistration"),
+              vehicle.get("firstRegistrationYear"), vehicle.get("year")]:
+        if c is None:
+            continue
+        if isinstance(c, dict):
+            v = safe_int(c.get("year") or c.get("raw") or c.get("value"))
+            if 1900 < v < 2100:
+                return v
+        elif isinstance(c, int) and 1900 < c < 2100:
+            return c
+        elif isinstance(c, str):
+            m = re.search(r'(19[5-9]\d|20\d{2})', c)
+            if m:
+                return int(m.group(1))
+    return 0
+
+
+def _get_km(item):
+    vehicle = item.get("vehicle", {}) or {}
+    return safe_int(vehicle.get("mileageInKm") or vehicle.get("mileage") or 0)
+
+
 def scrape_mobile():
-    """Scrape AutoScout24.de for additional Italian listings."""
     results = []
     session = requests.Session()
     session.headers.update(HEADERS)
@@ -56,59 +109,27 @@ def scrape_mobile():
                 resp = session.get(url, timeout=25)
                 resp.raise_for_status()
                 soup = BeautifulSoup(resp.text, "html.parser")
-
-                import json
                 script = soup.find("script", id="__NEXT_DATA__")
+
                 if not script:
                     break
 
                 data = json.loads(script.string)
-
-                def find_list(d, depth=0):
-                    if depth > 6 or not isinstance(d, (dict, list)):
-                        return []
-                    if isinstance(d, list) and d and isinstance(d[0], dict):
-                        if any(k in d[0] for k in ["vehicle", "pricing", "price", "url", "guid"]):
-                            return d
-                    if isinstance(d, dict):
-                        for k in ["listings", "ads", "items", "results", "vehicles"]:
-                            if k in d:
-                                r = find_list(d[k], depth + 1)
-                                if r:
-                                    return r
-                        for v in d.values():
-                            r = find_list(v, depth + 1)
-                            if r:
-                                return r
-                    return []
-
-                raw_items = find_list(data)
+                raw_items = _find_listings(data)
                 page_count = 0
 
                 for item in raw_items:
                     try:
-                        vehicle = item.get("vehicle", {}) or {}
-                        pricing = item.get("pricing", {}) or {}
-                        location = item.get("location", {}) or {}
-
-                        pricing = item.get("pricing", {}) or item.get("prices", {}) or {}
-                        price = (
-                            safe_int(pricing.get("price", {}).get("raw") if isinstance(pricing.get("price"), dict) else pricing.get("price"))
-                            or safe_int(pricing.get("public", {}).get("priceRaw") if isinstance(pricing.get("public"), dict) else 0)
-                            or safe_int(item.get("price") or item.get("priceRaw") or 0)
-                        )
+                        price = _get_price(item)
                         if not price or price > MAX_PRICE:
                             continue
 
-                        year = safe_int(
-                            vehicle.get("firstRegistration", {}).get("year") if isinstance(vehicle.get("firstRegistration"), dict) else None
-                            or vehicle.get("firstRegistrationYear") or 0
-                        )
+                        year = _get_year(item)
                         if year and not (YEAR_MIN <= year <= YEAR_MAX):
                             continue
 
-                        ml = vehicle.get("mileage", {})
-                        km = safe_int(ml.get("value") or ml.get("raw") if isinstance(ml, dict) else ml or 0)
+                        km = _get_km(item)
+                        location = item.get("location", {}) or {}
                         city = location.get("city", "") or ""
                         lat = location.get("latitude")
                         lon = location.get("longitude")
@@ -122,29 +143,23 @@ def scrape_mobile():
                         if dist is not None and dist > MAX_DISTANCE_KM:
                             continue
 
-                        url_listing = item.get("url", "") or ""
-                        if url_listing and not url_listing.startswith("http"):
-                            url_listing = "https://www.autoscout24.de" + url_listing
+                        url_l = item.get("url", "") or ""
+                        if url_l and not url_l.startswith("http"):
+                            url_l = "https://www.autoscout24.de" + url_l
 
-                        make = vehicle.get("make", "") or ""
-                        model = vehicle.get("model", "") or ""
+                        vehicle = item.get("vehicle", {}) or {}
+                        make = vehicle.get("make", "")
+                        model = vehicle.get("model", "")
                         title = f"{make} {model} {year}".strip()
 
                         results.append({
                             "source": "AutoScout24.de",
-                            "title": title,
-                            "make": make,
-                            "model": model,
-                            "year": year,
-                            "price": price,
-                            "km": km,
-                            "city": city,
-                            "distance_km": dist,
-                            "condition": "Usato",
-                            "url": url_listing,
-                            "seller": "",
-                            "phone": "",
-                            "listing_id": make_listing_id(url_listing, title, price),
+                            "title": title, "make": make, "model": model,
+                            "year": year, "price": price, "km": km,
+                            "city": city, "distance_km": dist,
+                            "condition": "Usato", "url": url_l,
+                            "seller": "", "phone": "",
+                            "listing_id": make_listing_id(url_l, title, price),
                             "found_at": datetime.now().isoformat(),
                             "label": label,
                         })
