@@ -127,11 +127,28 @@ def scrape_subito():
         return []
 
     results = []
+    first = True
     for search in SEARCHES:
         target = f"https://www.subito.it/annunci-italia/vendita/auto/?q={search['query'].replace(' ', '+')}"
         print(f"  Subito.it (via ScraperAPI) → {search['query']}...")
         try:
             html = _fetch_via_scraperapi(target)
+            if first:
+                # Debug: scan available selectors to understand current Subito.it HTML
+                soup = BeautifulSoup(html, "html.parser")
+                print(f"    [debug] HTML size: {len(html)} bytes")
+                print(f"    [debug] page title: {soup.title.string if soup.title else 'N/A'}")
+                # Try to find ANY listing-like container
+                for sel in ["div[class*='item-card']", "article", "div[class*='ad']",
+                            "div[class*='listing']", "div[class*='SmallCard']",
+                            "a[href*='/annunci/']", "a[href*='/vi/']"]:
+                    found = soup.select(sel)
+                    if found:
+                        print(f"    [debug] selector '{sel}' → {len(found)} matches")
+                        # Print first match's classes
+                        if found[0].get("class"):
+                            print(f"    [debug]   first match classes: {found[0]['class']}")
+                first = False
             items = _parse_subito(html, search)
             print(f"    {len(items)} listings")
             results.extend(items)

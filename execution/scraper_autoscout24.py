@@ -59,58 +59,75 @@ def _find_listings_recursive(data, depth=0):
 
 
 def _debug_item(item):
-    """Print the structure of the first item to understand AutoScout24's schema."""
-    print(f"    [debug] item keys: {list(item.keys())[:12]}")
-    for field in ["vehicle", "pricing", "prices", "price", "location", "seller"]:
+    """Print FULL structure of first item to understand AutoScout24's schema."""
+    print(f"    [debug] item keys: {list(item.keys())[:14]}")
+    vehicle = item.get("vehicle", {})
+    if isinstance(vehicle, dict):
+        print(f"    [debug] vehicle keys: {list(vehicle.keys())}")
+    price = item.get("price", {})
+    if isinstance(price, dict):
+        print(f"    [debug] price keys: {list(price.keys())}")
+    for field in ["price", "location"]:
         if field in item:
             val = item[field]
             if isinstance(val, dict):
-                print(f"    [debug] {field}: {dict(list(val.items())[:4])}")
-            else:
-                print(f"    [debug] {field}: {val}")
+                print(f"    [debug] {field}: {dict(list(val.items())[:5])}")
 
 
 def _get_price(item):
-    """Extract price trying all known AutoScout24 JSON structures."""
-    # pricing.price.raw  (old structure)
-    p = item.get("pricing", {})
-    v = safe_int(p.get("price", {}).get("raw") if isinstance(p.get("price"), dict) else p.get("price"))
-    if v: return v
-    v = safe_int(p.get("rawPrice") or p.get("priceRaw"))
-    if v: return v
-
-    # prices.public.priceRaw  (new structure)
-    pr = item.get("prices", {})
-    if isinstance(pr, dict):
-        pub = pr.get("public", {}) or pr.get("retail", {}) or {}
-        v = safe_int(pub.get("priceRaw") or pub.get("price") or pub.get("raw"))
-        if v: return v
-        v = safe_int(pr.get("priceRaw") or pr.get("price") or pr.get("raw"))
-        if v: return v
-
-    # top-level price
-    return safe_int(item.get("price") or item.get("priceRaw") or 0)
+    """AS24 stores price as item.price = {priceFormatted: '€ 5.200', ...}"""
+    p = item.get("price")
+    if isinstance(p, dict):
+        # Try raw numeric keys first
+        for k in ["priceRaw", "priceValue", "raw", "value", "amount"]:
+            v = safe_int(p.get(k))
+            if v: return v
+        # Fall back to parsing formatted string
+        formatted = p.get("priceFormatted") or p.get("formatted") or ""
+        return parse_price(formatted)
+    return safe_int(p)
 
 
 def _get_year(item):
+    """Extract year — AS24 uses 'firstRegistrationDate' = '1993-03' or similar."""
     vehicle = item.get("vehicle", {}) or {}
-    # vehicle.firstRegistration.year
-    fr = vehicle.get("firstRegistration", {})
-    if isinstance(fr, dict):
-        v = safe_int(fr.get("year"))
-        if v: return v
-    v = safe_int(vehicle.get("firstRegistrationYear") or vehicle.get("registrationYear"))
-    if v: return v
-    return safe_int(item.get("firstRegistrationYear") or 0)
+    candidates = [
+        vehicle.get("firstRegistrationDate"),
+        vehicle.get("firstRegistration"),
+        vehicle.get("firstRegistrationYear"),
+        vehicle.get("registrationYear"),
+        vehicle.get("year"),
+        item.get("firstRegistrationDate"),
+        item.get("firstRegistration"),
+    ]
+    for c in candidates:
+        if c is None:
+            continue
+        if isinstance(c, dict):
+            v = safe_int(c.get("year") or c.get("raw") or c.get("value"))
+            if 1900 < v < 2100:
+                return v
+        elif isinstance(c, int):
+            if 1900 < c < 2100:
+                return c
+        elif isinstance(c, str):
+            import re
+            m = re.search(r'(19[5-9]\d|20\d{2})', c)
+            if m:
+                return int(m.group(1))
+    return 0
 
 
 def _get_km(item):
     vehicle = item.get("vehicle", {}) or {}
-    ml = vehicle.get("mileage", {})
+    ml = vehicle.get("mileage")
     if isinstance(ml, dict):
-        v = safe_int(ml.get("value") or ml.get("raw"))
-        if v: return v
-    return safe_int(vehicle.get("km") or item.get("mileage") or 0)
+        for k in ["raw", "value", "km"]:
+            v = safe_int(ml.get(k))
+            if v: return v
+        # parse from formatted string
+        return parse_km(ml.get("formatted") or ml.get("mileageFormatted") or "")
+    return safe_int(ml or vehicle.get("km") or item.get("mileage") or 0)
 
 
 def _parse_item_json(item, label, debug=False):
