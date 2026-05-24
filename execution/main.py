@@ -1,13 +1,16 @@
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(__file__))
+
+# Subito.it usa render=true (10 credits/call). 3 query × 10 × 30 giorni = 900 credits/mese.
+# Quindi gira solo 1 volta al giorno (alle 12:00 UTC).
+SUBITO_RUN_HOUR_UTC = 12
 
 from scraper_autoscout24 import scrape_autoscout24
 from scraper_subito import scrape_subito
 from scraper_mobile import scrape_mobile
-from scraper_autouncle import scrape_autouncle
 from scraper_aste import scrape_aste
 from sheets_writer import write_listings, write_auctions
 from scorer import score_listing
@@ -59,9 +62,16 @@ def main():
 
     all_listings = []
     all_listings += run_scraper("AutoScout24", scrape_autoscout24)
-    all_listings += run_scraper("Subito.it", scrape_subito)
     all_listings += run_scraper("AutoScout24.de", scrape_mobile)
-    all_listings += run_scraper("AutoUncle", scrape_autouncle)
+
+    # Subito.it: gira 1x/giorno (alle 12:00 UTC) o se forzato manualmente
+    current_hour = datetime.now(timezone.utc).hour
+    force_subito = os.environ.get("FORCE_SUBITO", "").strip() == "1"
+    if current_hour == SUBITO_RUN_HOUR_UTC or force_subito:
+        all_listings += run_scraper("Subito.it (render JS)", scrape_subito)
+    else:
+        print(f"\n📡 Subito.it: skipped (gira solo alle {SUBITO_RUN_HOUR_UTC}:00 UTC per "
+              f"risparmiare credits ScraperAPI — ora attuale: {current_hour}:00 UTC)")
 
     filtered = filter_listings(all_listings)
     unique = deduplicate(filtered)

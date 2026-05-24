@@ -40,13 +40,14 @@ def _extract_year(text):
 
 
 def _fetch_via_scraperapi(target_url):
-    """Fetch a URL through ScraperAPI's residential proxies (Italian IPs)."""
+    """Fetch a URL through ScraperAPI con JS rendering (costa 10 credits/call)."""
     params = {
         "api_key": SCRAPER_API_KEY,
         "url": target_url,
-        "country_code": "it",  # IT residential proxy
+        "country_code": "it",
+        "render": "true",  # esegue JS → necessario per Subito.it (skeleton loading)
     }
-    resp = requests.get(SCRAPER_API_URL, params=params, timeout=70)
+    resp = requests.get(SCRAPER_API_URL, params=params, timeout=90)
     resp.raise_for_status()
     return resp.text
 
