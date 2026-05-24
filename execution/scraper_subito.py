@@ -157,7 +157,12 @@ def scrape_subito():
     results = []
     first = True
     for search in SEARCHES:
-        target = f"https://www.subito.it/annunci-italia/vendita/auto/?q={search['query'].replace(' ', '+')}"
+        q = search['query'].replace(' ', '+')
+        # Filtro prezzo nell'URL → massimizza il signal:noise per ogni call (1 call = 10 credits)
+        target = (
+            f"https://www.subito.it/annunci-italia/vendita/auto/"
+            f"?q={q}&ps={0}&pe={MAX_PRICE}"
+        )
         print(f"  Subito.it (via ScraperAPI) → {search['query']}...")
         try:
             html = _fetch_via_scraperapi(target)
