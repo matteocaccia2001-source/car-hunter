@@ -55,17 +55,24 @@ def _parse_subito(html, search, debug=False):
     results = []
     soup = BeautifulSoup(html, "html.parser")
 
-    # Subito.it 2026: usa CSS Modules → article.index-module_card__XXXX
+    # Subito.it 2026: ricerca multipla
     items = (
         soup.select("article[class*='card']")
         or soup.select("article")
     )
 
+    if debug and items:
+        # Dump primo article HTML per capire struttura
+        first_html = str(items[0])[:1500]
+        print(f"      [debug] FIRST ARTICLE HTML (first 1500 chars):\n{first_html}\n")
+        print(f"      [debug] FIRST ARTICLE TEXT: {items[0].get_text(' ', strip=True)[:300]}")
+
     for idx, item in enumerate(items):
         try:
-            # Skip non-listing articles (header banners, etc.) — listing items have a price
             text = item.get_text(" ", strip=True)
-            if "€" not in text:
+            # Non skippare per €: prova comunque a estrarre dati
+            has_price_hint = ("€" in text) or re.search(r'\d[\.\s]?\d{3}', text)
+            if not has_price_hint:
                 continue
 
             link_el = item.select_one("a[href*='/vi/'], a[href*='/annunci/'], a[href*='/annuncio/'], a[href]")
