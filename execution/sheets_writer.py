@@ -11,9 +11,24 @@ SCOPES = [
 
 SHEET_LISTINGS = "🔍 Annunci"
 SHEET_AUCTIONS = "🔨 Aste Giudiziarie"
+SHEET_BOOKMARKS = "🔖 Bookmarks Aste"
 SHEET_CONTACTS = "👥 Contatti"
 SHEET_DASHBOARD = "📊 Dashboard"
 SHEET_SEEN = "Visti"
+
+BOOKMARKS = [
+    # (Portale, Tipo, URL ricerca)
+    ("PVP — Min. Giustizia", "Tutti i veicoli", "https://pvp.giustizia.it/pvp/it/ricerca_avanzata_vendite.wp"),
+    ("AsteGiudiziarie.it", "Cerca BMW",       "https://www.astegiudiziarie.it/Aste/ListaAste?cerca=BMW&categoria=autoveicoli"),
+    ("AsteGiudiziarie.it", "Cerca Audi",      "https://www.astegiudiziarie.it/Aste/ListaAste?cerca=Audi&categoria=autoveicoli"),
+    ("AsteGiudiziarie.it", "Cerca Mercedes",  "https://www.astegiudiziarie.it/Aste/ListaAste?cerca=Mercedes&categoria=autoveicoli"),
+    ("AsteTelematica.it",  "Tutti veicoli",   "https://www.astetelematiche.it/auto"),
+    ("Gobid.it",           "Tutti veicoli",   "https://www.gobid.it/it/aste/veicoli"),
+    ("FallcoAste.it",      "Auto",            "https://www.fallcoaste.it/cerca?categoria=veicoli"),
+    ("Astebene.it",        "Auto",            "https://www.astebene.it/aste/veicoli"),
+    ("Doauction.it",       "Auto",            "https://www.doauction.it/it/ricerca?categoria=auto"),
+    ("Ananke Aste",        "Auto",            "https://www.anankeaste.it/categoria/veicoli"),
+]
 
 AUCTIONS_HEADERS = [
     "#", "Data Trovato", "Piattaforma", "Marca", "Modello",
@@ -71,9 +86,23 @@ def _format_header(ws, col_count):
 def _setup_sheets(spreadsheet):
     listings_ws = _get_or_create(spreadsheet, SHEET_LISTINGS)
     auctions_ws = _get_or_create(spreadsheet, SHEET_AUCTIONS)
+    bookmarks_ws = _get_or_create(spreadsheet, SHEET_BOOKMARKS)
     contacts_ws = _get_or_create(spreadsheet, SHEET_CONTACTS)
     dashboard_ws = _get_or_create(spreadsheet, SHEET_DASHBOARD)
     seen_ws = _get_or_create(spreadsheet, SHEET_SEEN)
+
+    # Bookmarks (popolato una sola volta)
+    if not bookmarks_ws.row_values(1):
+        rows = [["Portale", "Tipo Ricerca", "Link Diretto (clicca per aprire)"]]
+        for portale, tipo, link in BOOKMARKS:
+            rows.append([portale, tipo, link])
+        bookmarks_ws.update("A1:C{}".format(len(rows)), rows)
+        bookmarks_ws.format("A1:C1", {
+            "backgroundColor": {"red": 0.5, "green": 0.3, "blue": 0.7},
+            "textFormat": {"foregroundColor": COLOR_WHITE, "bold": True, "fontSize": 10},
+            "horizontalAlignment": "CENTER",
+        })
+        bookmarks_ws.freeze(rows=1)
 
     if not listings_ws.row_values(1):
         listings_ws.update("A1:P1", [LISTINGS_HEADERS])
@@ -101,7 +130,7 @@ def _setup_sheets(spreadsheet):
     if not seen_ws.row_values(1):
         seen_ws.update("A1", [["listing_id"]])
 
-    return listings_ws, auctions_ws, contacts_ws, dashboard_ws, seen_ws
+    return listings_ws, auctions_ws, bookmarks_ws, contacts_ws, dashboard_ws, seen_ws
 
 
 def _setup_dashboard(ws):
@@ -158,7 +187,7 @@ def _listing_to_row(listing):
 def write_auctions(auctions, spreadsheet_id):
     client = _get_client()
     spreadsheet = client.open_by_key(spreadsheet_id)
-    _, auctions_ws, _, _, seen_ws = _setup_sheets(spreadsheet)
+    _, auctions_ws, _, _, _, seen_ws = _setup_sheets(spreadsheet)
 
     seen_ids = _get_seen_ids(seen_ws)
     new_auctions = [a for a in auctions if a.get("listing_id") not in seen_ids]
@@ -201,7 +230,7 @@ def write_auctions(auctions, spreadsheet_id):
 def write_listings(listings, spreadsheet_id):
     client = _get_client()
     spreadsheet = client.open_by_key(spreadsheet_id)
-    listings_ws, _, _, dashboard_ws, seen_ws = _setup_sheets(spreadsheet)
+    listings_ws, _, _, _, dashboard_ws, seen_ws = _setup_sheets(spreadsheet)
 
     seen_ids = _get_seen_ids(seen_ws)
     new_listings = [l for l in listings if l.get("listing_id") not in seen_ids]

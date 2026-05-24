@@ -1,8 +1,17 @@
+"""
+Aste giudiziarie e telematiche italiane.
+Portali coperti automaticamente:
+- AstaTelematica.it (relativamente scrapable)
+- Gobid.it (aste judicial private)
+- PVP + AsteGiudiziarie.it (best effort — spesso vuoti perché usano JS/POST)
+
+Per ricerca manuale: vedi foglio "🔖 Bookmarks" nel Google Sheet.
+"""
 import requests
 from bs4 import BeautifulSoup
 import time
 import random
-import json
+import re
 from datetime import datetime
 
 from utils import make_listing_id, MAX_PRICE
@@ -23,172 +32,142 @@ SEARCHES = [
 ]
 
 
-# ─── PVP — Portale Vendite Pubbliche (Ministero della Giustizia) ─────────────
+# ─── AstaTelematica.it ───────────────────────────────────────────────────────
 
-PVP_SEARCH_URLS = [
-    "https://pvp.giustizia.it/pvp/it/ricerca_beni_mobili.wp",
-    "https://pvp.giustizia.it/pvp/it/ricerca_all.wp",
-    "https://pvp.giustizia.it/pvp/it/homepage.wp",
-]
-
-
-def _scrape_pvp_query(search):
+def _scrape_astatelematica_query(search):
     results = []
+    try:
+        url = f"https://www.astetelematiche.it/ricerca?q={search['query'].replace(' ', '+')}&categoria=autoveicoli"
+        resp = requests.get(url, headers=HEADERS, timeout=20)
+        if resp.status_code == 404:
+            # Try alternate URL
+            url = f"https://procedure.astetelematiche.it/aste/Lista?ricerca={search['query'].replace(' ', '+')}"
+            resp = requests.get(url, headers=HEADERS, timeout=20)
+        if resp.status_code == 404:
+            return results
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
 
-    for base_url in PVP_SEARCH_URLS:
-        try:
-            params = {"search": search["query"], "idCategoria": "2"}
-            resp = requests.get(base_url, params=params, headers=HEADERS, timeout=20)
-            if resp.status_code == 404:
-                continue
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "html.parser")
+        items = (
+            soup.select(".lotto, .asta-item, article[class*='lot'], div[class*='asta']")
+            or soup.select("tr[class*='lot'], li[class*='asta']")
+        )
 
-            items = (
-                soup.select(".lotto-item, .item-lotto, article.lotto")
-                or soup.select("div[class*='lotto'], li[class*='lotto']")
-                or soup.select(".annuncio, .bene-mobile")
-            )
+        for item in items:
+            try:
+                title_el = item.select_one("h2, h3, .titolo, [class*='title']")
+                price_el = item.select_one(".prezzo, .base, [class*='price'], [class*='prezzo']")
+                date_el = item.select_one(".data-asta, [class*='data']")
+                court_el = item.select_one(".tribunale, [class*='tribunale']")
+                link_el = item.select_one("a[href]")
+                if not title_el:
+                    continue
 
-            if not items:
-                print(f"    PVP ({base_url.split('/')[-1]}): nessun selettore trovato")
-                continue
+                title = title_el.get_text(strip=True)
+                price_text = price_el.get_text(strip=True) if price_el else ""
+                price = int("".join(c for c in price_text if c.isdigit()) or "0")
+                href = link_el["href"] if link_el else ""
+                if href and not href.startswith("http"):
+                    href = "https://www.astetelematiche.it" + href
 
-            for item in items:
-                try:
-                    title_el = item.select_one("h2, h3, .titolo, .title")
-                    price_el = item.select_one(".prezzo-base, .base-asta, [class*='prezzo']")
-                    date_el = item.select_one(".data-asta, [class*='data-asta']")
-                    court_el = item.select_one(".tribunale, [class*='tribunale']")
-                    lot_el = item.select_one(".numero-lotto, [class*='lotto-n']")
-                    link_el = item.select_one("a[href]")
+                results.append({
+                    "source": "AstaTelematica.it",
+                    "make": search["make"], "model": search["model"],
+                    "label": search["label"], "title": title,
+                    "price_base": price,
+                    "auction_date": date_el.get_text(strip=True) if date_el else "",
+                    "court": court_el.get_text(strip=True) if court_el else "",
+                    "lot": "", "url": href,
+                    "listing_id": make_listing_id(href, title, price),
+                    "found_at": datetime.now().isoformat(),
+                })
+            except Exception as e:
+                print(f"      AstaTel item error: {e}")
 
-                    if not title_el:
-                        continue
-
-                    title = title_el.get_text(strip=True)
-                    price_text = price_el.get_text(strip=True) if price_el else ""
-                    price = int("".join(c for c in price_text if c.isdigit()) or "0")
-                    href = link_el["href"] if link_el else ""
-                    if href and not href.startswith("http"):
-                        href = "https://pvp.giustizia.it" + href
-
-                    results.append({
-                        "source": "PVP (Ministero Giustizia)",
-                        "make": search["make"], "model": search["model"],
-                        "label": search["label"], "title": title,
-                        "price_base": price,
-                        "auction_date": date_el.get_text(strip=True) if date_el else "",
-                        "court": court_el.get_text(strip=True) if court_el else "",
-                        "lot": lot_el.get_text(strip=True) if lot_el else "",
-                        "url": href,
-                        "listing_id": make_listing_id(href, title, price),
-                        "found_at": datetime.now().isoformat(),
-                    })
-                except Exception as e:
-                    print(f"      PVP item error: {e}")
-
-            break  # success, stop trying fallback URLs
-
-        except Exception as e:
-            print(f"    PVP error ({base_url.split('/')[-1]}): {e}")
-            continue
+    except Exception as e:
+        print(f"    AstaTelematica error: {e}")
 
     return results
 
 
-def scrape_pvp():
+def scrape_astatelematica():
     results = []
     for search in SEARCHES:
-        print(f"  PVP → {search['query']}...")
-        found = _scrape_pvp_query(search)
+        print(f"  AstaTelematica → {search['query']}...")
+        found = _scrape_astatelematica_query(search)
         print(f"    {len(found)} lotti")
         results.extend(found)
-        time.sleep(random.uniform(2, 4))
+        time.sleep(random.uniform(2, 3))
     return results
 
 
-# ─── AsteGiudiziarie.it ───────────────────────────────────────────────────────
+# ─── Gobid.it ────────────────────────────────────────────────────────────────
 
-ASTEG_SEARCH_URLS = [
-    "https://www.astegiudiziarie.it/aste",
-    "https://www.astegiudiziarie.it/ricerca",
-    "https://www.astegiudiziarie.it/beni-mobili",
-]
-
-
-def _scrape_asteg_query(search):
+def _scrape_gobid_query(search):
     results = []
+    try:
+        url = f"https://www.gobid.it/it/ricerca?q={search['query'].replace(' ', '+')}"
+        resp = requests.get(url, headers=HEADERS, timeout=20)
+        if resp.status_code == 404:
+            return results
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
 
-    for base_url in ASTEG_SEARCH_URLS:
-        try:
-            params = {"q": search["query"], "categoria": "autoveicoli"}
-            resp = requests.get(base_url, params=params, headers=HEADERS, timeout=20)
-            if resp.status_code == 404:
-                continue
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "html.parser")
+        items = (
+            soup.select(".asta-card, .lot-card, article[class*='lot'], div[class*='auction']")
+            or soup.select("a[href*='/asta/']")
+        )
 
-            items = (
-                soup.select(".asta-card, .lotto-card, article.asta, .item-asta")
-                or soup.select("div[class*='asta'], li[class*='asta']")
-                or soup.select(".card, .result-item")
-            )
+        for item in items:
+            try:
+                text = item.get_text(" ", strip=True)
+                title_el = item.select_one("h2, h3, [class*='title']")
+                price_el = item.select_one("[class*='price'], [class*='base']")
+                link_el = item.select_one("a[href]") if item.name != "a" else item
 
-            if not items:
-                print(f"    AsteGiud ({base_url.split('/')[-1]}): nessun selettore trovato")
-                continue
+                if not title_el:
+                    continue
 
-            for item in items:
-                try:
-                    title_el = item.select_one("h2, h3, .titolo, .title")
-                    price_el = item.select_one(".prezzo, .base-asta, [class*='prezzo']")
-                    date_el = item.select_one(".data-asta, [class*='data']")
-                    court_el = item.select_one(".tribunale, .sede, [class*='tribunale']")
-                    link_el = item.select_one("a[href]")
+                title = title_el.get_text(strip=True)
+                price = 0
+                if price_el:
+                    price = int("".join(c for c in price_el.get_text() if c.isdigit()) or "0")
+                if not price:
+                    m = re.search(r'€\s?(\d{1,2}[\.\s]?\d{3})', text)
+                    if m:
+                        price = int(m.group(1).replace(".", "").replace(" ", ""))
 
-                    if not title_el:
-                        continue
+                href = link_el["href"] if link_el and link_el.has_attr("href") else ""
+                if href and not href.startswith("http"):
+                    href = "https://www.gobid.it" + href
 
-                    title = title_el.get_text(strip=True)
-                    price_text = price_el.get_text(strip=True) if price_el else ""
-                    price = int("".join(c for c in price_text if c.isdigit()) or "0")
-                    href = link_el["href"] if link_el else ""
-                    if href and not href.startswith("http"):
-                        href = "https://www.astegiudiziarie.it" + href
+                results.append({
+                    "source": "Gobid.it",
+                    "make": search["make"], "model": search["model"],
+                    "label": search["label"], "title": title,
+                    "price_base": price,
+                    "auction_date": "", "court": "",
+                    "lot": "", "url": href,
+                    "listing_id": make_listing_id(href, title, price),
+                    "found_at": datetime.now().isoformat(),
+                })
+            except Exception as e:
+                print(f"      Gobid item error: {e}")
 
-                    results.append({
-                        "source": "AsteGiudiziarie.it",
-                        "make": search["make"], "model": search["model"],
-                        "label": search["label"], "title": title,
-                        "price_base": price,
-                        "auction_date": date_el.get_text(strip=True) if date_el else "",
-                        "court": court_el.get_text(strip=True) if court_el else "",
-                        "lot": "",
-                        "url": href,
-                        "listing_id": make_listing_id(href, title, price),
-                        "found_at": datetime.now().isoformat(),
-                    })
-                except Exception as e:
-                    print(f"      AsteGiud item error: {e}")
-
-            break
-
-        except Exception as e:
-            print(f"    AsteGiud error ({base_url.split('/')[-1]}): {e}")
-            continue
+    except Exception as e:
+        print(f"    Gobid error: {e}")
 
     return results
 
 
-def scrape_astegiudiziarie():
+def scrape_gobid():
     results = []
     for search in SEARCHES:
-        print(f"  AsteGiudiziarie.it → {search['query']}...")
-        found = _scrape_asteg_query(search)
+        print(f"  Gobid → {search['query']}...")
+        found = _scrape_gobid_query(search)
         print(f"    {len(found)} lotti")
         results.extend(found)
-        time.sleep(random.uniform(2, 4))
+        time.sleep(random.uniform(2, 3))
     return results
 
 
@@ -196,6 +175,8 @@ def scrape_astegiudiziarie():
 
 def scrape_aste():
     results = []
-    results += scrape_pvp()
-    results += scrape_astegiudiziarie()
+    print("  → AstaTelematica.it")
+    results += scrape_astatelematica()
+    print("  → Gobid.it")
+    results += scrape_gobid()
     return results
