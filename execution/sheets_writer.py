@@ -104,10 +104,15 @@ def _setup_sheets(spreadsheet):
         })
         bookmarks_ws.freeze(rows=1)
 
-    if not listings_ws.row_values(1):
+    listings_first_time = not listings_ws.row_values(1)
+    if listings_first_time:
         listings_ws.update("A1:P1", [LISTINGS_HEADERS])
         _format_header(listings_ws, len(LISTINGS_HEADERS))
         listings_ws.freeze(rows=1)
+        _setup_score_conditional_formatting(spreadsheet, listings_ws)
+    elif not _has_conditional_formatting(spreadsheet, listings_ws):
+        # Retrofit per fogli già esistenti senza color rules
+        _setup_score_conditional_formatting(spreadsheet, listings_ws)
 
     if not auctions_ws.row_values(1):
         auctions_ws.update("A1:L1", [AUCTIONS_HEADERS])
@@ -131,6 +136,66 @@ def _setup_sheets(spreadsheet):
         seen_ws.update("A1", [["listing_id"]])
 
     return listings_ws, auctions_ws, bookmarks_ws, contacts_ws, dashboard_ws, seen_ws
+
+
+def _has_conditional_formatting(spreadsheet, ws):
+    """Check if the worksheet already has conditional format rules on the Score column."""
+    try:
+        meta = spreadsheet.fetch_sheet_metadata(params={"fields": "sheets(properties.sheetId,conditionalFormats)"})
+        for s in meta.get("sheets", []):
+            if s["properties"]["sheetId"] == ws.id:
+                return len(s.get("conditionalFormats", [])) > 0
+    except Exception:
+        return True  # in dubbio, assumi che esista per non spammare le API
+    return False
+
+
+def _setup_score_conditional_formatting(spreadsheet, ws):
+    """Imposta UNA volta le regole di colore per la colonna Score (K)."""
+    sheet_id = ws.id
+    # Score column = K = index 10 (0-based)
+    rng = {
+        "sheetId": sheet_id,
+        "startRowIndex": 1,
+        "endRowIndex": 5000,
+        "startColumnIndex": 10,
+        "endColumnIndex": 11,
+    }
+    rules = [
+        # >= 8 → verde brillante
+        ({"type": "NUMBER_GREATER_THAN_EQ", "values": [{"userEnteredValue": "8"}]},
+         {"red": 0.72, "green": 0.93, "blue": 0.72}),
+        # >= 6.5 → verde chiaro
+        ({"type": "NUMBER_GREATER_THAN_EQ", "values": [{"userEnteredValue": "6.5"}]},
+         {"red": 0.86, "green": 0.96, "blue": 0.82}),
+        # >= 5 → giallo
+        ({"type": "NUMBER_GREATER_THAN_EQ", "values": [{"userEnteredValue": "5"}]},
+         {"red": 1.00, "green": 0.95, "blue": 0.80}),
+        # >= 3.5 → arancio
+        ({"type": "NUMBER_GREATER_THAN_EQ", "values": [{"userEnteredValue": "3.5"}]},
+         {"red": 0.99, "green": 0.85, "blue": 0.78}),
+        # < 3.5 → rosso
+        ({"type": "NUMBER_LESS", "values": [{"userEnteredValue": "3.5"}]},
+         {"red": 0.96, "green": 0.74, "blue": 0.74}),
+    ]
+    requests = []
+    for idx, (condition, bg) in enumerate(rules):
+        requests.append({
+            "addConditionalFormatRule": {
+                "rule": {
+                    "ranges": [rng],
+                    "booleanRule": {
+                        "condition": condition,
+                        "format": {"backgroundColor": bg, "textFormat": {"bold": True}},
+                    },
+                },
+                "index": idx,
+            }
+        })
+    try:
+        spreadsheet.batch_update({"requests": requests})
+    except Exception as e:
+        print(f"  Conditional formatting setup error: {e}")
 
 
 def _setup_dashboard(ws):
@@ -218,10 +283,11 @@ def write_auctions(auctions, spreadsheet_id):
         ])
         new_ids.append([a["listing_id"]])
 
-    auctions_ws.append_rows(rows, value_input_option="USER_ENTERED")
-    for i in range(len(rows)):
-        auctions_ws.update_cell(current_row + i + 1, 1, current_row + i)
+    # Pre-popola numero riga prima dell'append → niente update_cell per row
+    for i, row in enumerate(rows):
+        row[0] = current_row + i
 
+    auctions_ws.append_rows(rows, value_input_option="USER_ENTERED")
     seen_ws.append_rows(new_ids)
     print(f"  ✅ {len(new_auctions)} new auction lots written.")
     return len(new_auctions)
@@ -243,35 +309,18 @@ def write_listings(listings, spreadsheet_id):
     new_ids = [[l["listing_id"]] for l in new_listings]
 
     current_row = len(listings_ws.col_values(1))
+
+    # Riempi la colonna # nelle rows PRIMA dell'append → niente update_cell per ogni riga
+    for i, row in enumerate(rows):
+        row[0] = current_row + i
+
+    # UNA sola chiamata di append per tutte le righe
     listings_ws.append_rows(rows, value_input_option="USER_ENTERED")
 
-    for i in range(len(rows)):
-        listings_ws.update_cell(current_row + i + 1, 1, current_row + i)
-
-    # Colora la colonna Score (K) in base al valore
-    try:
-        from scorer import score_color
-        format_requests = []
-        for i, listing in enumerate(new_listings):
-            score = listing.get("score", 0) or 0
-            if not score:
-                continue
-            row_idx = current_row + i + 1
-            format_requests.append({
-                "range": f"K{row_idx}",
-                "format": {
-                    "backgroundColor": score_color(score),
-                    "textFormat": {"bold": True},
-                    "horizontalAlignment": "CENTER",
-                },
-            })
-        # Batch format in chunks
-        for req in format_requests:
-            listings_ws.format(req["range"], req["format"])
-    except Exception as e:
-        print(f"  Score color formatting skipped: {e}")
-
+    # UNA sola chiamata di append per gli ID visti
     seen_ws.append_rows(new_ids)
+
+    # UNA sola chiamata per la dashboard timestamp
     dashboard_ws.update("B3", [[datetime.now().strftime("%d/%m/%Y %H:%M")]])
 
     print(f"  ✅ {len(new_listings)} new listings written to Google Sheets.")
