@@ -10,6 +10,7 @@ SCOPES = [
 ]
 
 SHEET_LISTINGS = "🔍 Annunci"
+SHEET_MOTOS = "🏍 Moto"
 SHEET_AUCTIONS = "🔨 Aste Giudiziarie"
 SHEET_BOOKMARKS = "🔖 Bookmarks Aste"
 SHEET_CONTACTS = "👥 Contatti"
@@ -85,6 +86,7 @@ def _format_header(ws, col_count):
 
 def _setup_sheets(spreadsheet):
     listings_ws = _get_or_create(spreadsheet, SHEET_LISTINGS)
+    motos_ws = _get_or_create(spreadsheet, SHEET_MOTOS)
     auctions_ws = _get_or_create(spreadsheet, SHEET_AUCTIONS)
     bookmarks_ws = _get_or_create(spreadsheet, SHEET_BOOKMARKS)
     contacts_ws = _get_or_create(spreadsheet, SHEET_CONTACTS)
@@ -111,8 +113,18 @@ def _setup_sheets(spreadsheet):
         listings_ws.freeze(rows=1)
         _setup_score_conditional_formatting(spreadsheet, listings_ws)
     elif not _has_conditional_formatting(spreadsheet, listings_ws):
-        # Retrofit per fogli già esistenti senza color rules
         _setup_score_conditional_formatting(spreadsheet, listings_ws)
+
+    # Foglio Moto (stessa struttura colonne degli annunci auto)
+    if not motos_ws.row_values(1):
+        motos_ws.update("A1:P1", [LISTINGS_HEADERS])
+        motos_ws.format("A1:P1", {
+            "backgroundColor": {"red": 0.13, "green": 0.4, "blue": 0.13},
+            "textFormat": {"foregroundColor": COLOR_WHITE, "bold": True, "fontSize": 10},
+            "horizontalAlignment": "CENTER",
+        })
+        motos_ws.freeze(rows=1)
+        _setup_score_conditional_formatting(spreadsheet, motos_ws)
 
     if not auctions_ws.row_values(1):
         auctions_ws.update("A1:L1", [AUCTIONS_HEADERS])
@@ -135,7 +147,7 @@ def _setup_sheets(spreadsheet):
     if not seen_ws.row_values(1):
         seen_ws.update("A1", [["listing_id"]])
 
-    return listings_ws, auctions_ws, bookmarks_ws, contacts_ws, dashboard_ws, seen_ws
+    return listings_ws, motos_ws, auctions_ws, bookmarks_ws, contacts_ws, dashboard_ws, seen_ws
 
 
 def _has_conditional_formatting(spreadsheet, ws):
@@ -250,10 +262,37 @@ def _listing_to_row(listing):
     ]
 
 
+def write_motos(motos, spreadsheet_id):
+    """Scrive moto nel foglio dedicato. Restituisce (n_scritti, lista_nuove)."""
+    client = _get_client()
+    spreadsheet = client.open_by_key(spreadsheet_id)
+    _, motos_ws, _, _, _, _, seen_ws = _setup_sheets(spreadsheet)
+
+    seen_ids = _get_seen_ids(seen_ws)
+    new_motos = [m for m in motos if m.get("listing_id") not in seen_ids]
+
+    if not new_motos:
+        print("  No new moto listings to add.")
+        return 0, []
+
+    rows = [_listing_to_row(m) for m in new_motos]
+    new_ids = [[m["listing_id"]] for m in new_motos]
+
+    current_row = len(motos_ws.col_values(1))
+    for i, row in enumerate(rows):
+        row[0] = current_row + i
+
+    motos_ws.append_rows(rows, value_input_option="USER_ENTERED")
+    seen_ws.append_rows(new_ids)
+
+    print(f"  ✅ {len(new_motos)} new moto listings written.")
+    return len(new_motos), new_motos
+
+
 def write_auctions(auctions, spreadsheet_id):
     client = _get_client()
     spreadsheet = client.open_by_key(spreadsheet_id)
-    _, auctions_ws, _, _, _, seen_ws = _setup_sheets(spreadsheet)
+    _, _, auctions_ws, _, _, _, seen_ws = _setup_sheets(spreadsheet)
 
     seen_ids = _get_seen_ids(seen_ws)
     new_auctions = [a for a in auctions if a.get("listing_id") not in seen_ids]
@@ -297,7 +336,7 @@ def write_auctions(auctions, spreadsheet_id):
 def write_listings(listings, spreadsheet_id):
     client = _get_client()
     spreadsheet = client.open_by_key(spreadsheet_id)
-    listings_ws, _, _, _, dashboard_ws, seen_ws = _setup_sheets(spreadsheet)
+    listings_ws, _, _, _, _, dashboard_ws, seen_ws = _setup_sheets(spreadsheet)
 
     seen_ids = _get_seen_ids(seen_ws)
     new_listings = [l for l in listings if l.get("listing_id") not in seen_ids]

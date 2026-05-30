@@ -12,7 +12,8 @@ from scraper_autoscout24 import scrape_autoscout24
 from scraper_subito import scrape_subito
 from scraper_mobile import scrape_mobile
 from scraper_aste import scrape_aste
-from sheets_writer import write_listings, write_auctions
+from scraper_moto import scrape_moto
+from sheets_writer import write_listings, write_auctions, write_motos
 from scorer import score_listing
 from notifier import notify_high_score_listings, can_notify, MIN_SCORE
 from utils import MAX_PRICE, YEAR_MIN, YEAR_MAX
@@ -107,7 +108,27 @@ def main():
             sent = notify_high_score_listings(new_listings)
             print(f"  ✅ {sent} messaggi inviati")
 
-    # Aste giudiziarie — canale separato, nessun filtro di distanza/anno
+    # ─── MOTO (Honda CRF 450) ──────────────────────────────────────────
+    print(f"\n🏍 Moto...")
+    moto_listings = run_scraper("Moto (Subito.it)", scrape_moto)
+    moto_unique = deduplicate(moto_listings)
+    for m in moto_unique:
+        m["score"] = score_listing(m)
+    moto_unique.sort(key=lambda x: (-x.get("score", 0), x.get("price", 999999)))
+    print(f"  After dedup:      {len(moto_unique)}")
+
+    print(f"\n📝 Writing moto to Google Sheets...")
+    written_moto, new_motos = write_motos(moto_unique, spreadsheet_id)
+
+    # WhatsApp anche per moto nuove con score alto
+    if can_notify() and new_motos:
+        high_score_motos = [m for m in new_motos if (m.get("score") or 0) >= MIN_SCORE]
+        if high_score_motos:
+            print(f"\n📱 Invio {len(high_score_motos)} notifiche WhatsApp moto (score >= {MIN_SCORE})...")
+            sent = notify_high_score_listings(new_motos)
+            print(f"  ✅ {sent} messaggi inviati")
+
+    # ─── ASTE GIUDIZIARIE ──────────────────────────────────────────────
     print(f"\n🔨 Aste Giudiziarie...")
     all_auctions = run_scraper("Aste Giudiziarie", scrape_aste)
     unique_auctions = deduplicate(all_auctions)
@@ -117,7 +138,7 @@ def main():
     written_auctions = write_auctions(unique_auctions, spreadsheet_id)
 
     print(f"\n{'='*60}")
-    print(f"✅ Done. {written} annunci + {written_auctions} lotti d'asta aggiunti.")
+    print(f"✅ Done. {written} auto + {written_moto} moto + {written_auctions} aste aggiunti.")
     print(f"{'='*60}\n")
 
 
