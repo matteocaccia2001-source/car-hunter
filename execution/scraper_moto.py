@@ -91,11 +91,19 @@ def _fetch(target_url):
     raise RuntimeError("Né Playwright né SCRAPER_API_KEY disponibili")
 
 
-def _parse(html, search):
+def _parse(html, search, debug=False):
     results = []
     soup = BeautifulSoup(html, "html.parser")
 
     items = soup.select("article[class*='card']") or soup.select("article")
+
+    if debug:
+        print(f"      [debug] HTML size: {len(html)} bytes, articles: {len(items)}")
+        if items:
+            first_text = items[0].get_text(" ", strip=True)[:200]
+            print(f"      [debug] first article text: {first_text}")
+        title = soup.title.string if soup.title else "?"
+        print(f"      [debug] page title: {title}")
 
     for item in items:
         try:
@@ -116,9 +124,11 @@ def _parse(html, search):
             if not title:
                 continue
 
-            # Filtro per nome modello — evita falsi positivi (es. "CR 450" senza F)
-            title_lower = title.lower()
-            if "crf" not in title_lower and "crf450" not in title_lower:
+            # Filtro permissivo: cerca CRF in tutto il testo della card (titolo + descrizione)
+            text_lower = text.lower()
+            has_crf = "crf" in text_lower
+            has_honda_450 = "honda" in text_lower and "450" in text_lower
+            if not (has_crf or has_honda_450):
                 continue
 
             # Prezzo
@@ -175,6 +185,7 @@ def scrape_moto():
 
     results = []
     seen_q = set()
+    first = True
     for search in SEARCHES:
         if search["query"] in seen_q:
             continue
@@ -188,7 +199,8 @@ def scrape_moto():
         print(f"  Subito.it moto → {search['query']}...")
         try:
             html = _fetch(target)
-            items = _parse(html, search)
+            items = _parse(html, search, debug=first)
+            first = False
             print(f"    {len(items)} listings")
             results.extend(items)
         except Exception as e:
