@@ -16,7 +16,7 @@ from utils import (
 )
 
 # Filtri specifici moto
-MAX_PRICE_MOTO = 4000
+MAX_PRICE_MOTO = 3500
 
 SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY", "").strip()
 PLAYWRIGHT_AVAILABLE = False
