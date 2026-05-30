@@ -304,7 +304,7 @@ def write_listings(listings, spreadsheet_id):
 
     if not new_listings:
         print("  No new listings to add.")
-        return 0
+        return 0, []
 
     rows = [_listing_to_row(l) for l in new_listings]
     new_ids = [[l["listing_id"]] for l in new_listings]
@@ -325,4 +325,4 @@ def write_listings(listings, spreadsheet_id):
     dashboard_ws.update("B3", [[datetime.now().strftime("%d/%m/%Y %H:%M")]])
 
     print(f"  ✅ {len(new_listings)} new listings written to Google Sheets.")
-    return len(new_listings)
+    return len(new_listings), new_listings

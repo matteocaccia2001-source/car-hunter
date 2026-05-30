@@ -14,6 +14,7 @@ from scraper_mobile import scrape_mobile
 from scraper_aste import scrape_aste
 from sheets_writer import write_listings, write_auctions
 from scorer import score_listing
+from notifier import notify_high_score_listings, can_notify, MIN_SCORE
 from utils import MAX_PRICE, YEAR_MIN, YEAR_MAX
 
 
@@ -96,7 +97,15 @@ def main():
     print(f"  After dedup:      {len(unique)}")
 
     print(f"\n📝 Writing annunci to Google Sheets...")
-    written = write_listings(unique, spreadsheet_id)
+    written, new_listings = write_listings(unique, spreadsheet_id)
+
+    # WhatsApp notifications per gli annunci NUOVI con score alto
+    if can_notify() and new_listings:
+        high_score = [l for l in new_listings if (l.get("score") or 0) >= MIN_SCORE]
+        if high_score:
+            print(f"\n📱 Invio {len(high_score)} notifiche WhatsApp (score >= {MIN_SCORE})...")
+            sent = notify_high_score_listings(new_listings)
+            print(f"  ✅ {sent} messaggi inviati")
 
     # Aste giudiziarie — canale separato, nessun filtro di distanza/anno
     print(f"\n🔨 Aste Giudiziarie...")
