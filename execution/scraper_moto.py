@@ -183,28 +183,35 @@ def scrape_moto():
         print("  Moto skipped: né Playwright né SCRAPER_API_KEY")
         return []
 
+    # Provo più formati URL — Subito potrebbe aver cambiato categoria
+    URL_FORMATS = [
+        "https://www.subito.it/annunci-italia/vendita/moto-e-scooter/?q={q}&ps=0&pe={pe}",
+        "https://www.subito.it/annunci-italia/vendita/moto/?q={q}&ps=0&pe={pe}",
+        "https://www.subito.it/annunci-italia/vendita/?q={q}&ps=0&pe={pe}",
+    ]
+
     results = []
     seen_q = set()
-    first = True
     for search in SEARCHES:
         if search["query"] in seen_q:
             continue
         seen_q.add(search["query"])
 
         q = search["query"].replace(" ", "+")
-        target = (
-            f"https://www.subito.it/annunci-italia/vendita/moto-e-scooter/"
-            f"?q={q}&ps=0&pe={MAX_PRICE_MOTO}"
-        )
         print(f"  Subito.it moto → {search['query']}...")
-        try:
-            html = _fetch(target)
-            items = _parse(html, search, debug=first)
-            first = False
-            print(f"    {len(items)} listings")
-            results.extend(items)
-        except Exception as e:
-            print(f"    Moto error ('{search['query']}'): {e}")
-        time.sleep(random.uniform(1, 2))
+
+        for url_idx, url_fmt in enumerate(URL_FORMATS):
+            target = url_fmt.format(q=q, pe=MAX_PRICE_MOTO)
+            print(f"    [try URL {url_idx+1}/{len(URL_FORMATS)}] {target}")
+            try:
+                html = _fetch(target)
+                items = _parse(html, search, debug=True)  # debug sempre on, finché non funziona
+                print(f"    → {len(items)} valid listings")
+                results.extend(items)
+                if items:
+                    break  # URL funziona, basta
+            except Exception as e:
+                print(f"    Moto error: {e}")
+            time.sleep(random.uniform(1, 2))
 
     return results
