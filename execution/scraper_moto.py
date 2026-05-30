@@ -17,6 +17,7 @@ from utils import (
 
 # Filtri specifici moto
 MAX_PRICE_MOTO = 3500
+YEAR_MIN_MOTO = 2005      # dal 2005 compreso in su
 
 SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY", "").strip()
 PLAYWRIGHT_AVAILABLE = False
@@ -152,6 +153,10 @@ def _parse(html, search, debug=False):
                 continue
 
             year = _extract_year(title) or _extract_year(text)
+
+            # Filtro anno: minimo 2005. Se anno mancante → escludi (troppo rischioso).
+            if year < YEAR_MIN_MOTO:
+                continue
 
             results.append({
                 "source": "Subito.it",
