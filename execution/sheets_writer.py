@@ -161,21 +161,22 @@ def _setup_score_conditional_formatting(spreadsheet, ws):
         "startColumnIndex": 10,
         "endColumnIndex": 11,
     }
+    # Threshold interi (Google Sheets API non accetta decimali nelle conditional rules)
     rules = [
-        # >= 8 → verde brillante
+        # >= 8 → verde brillante (bomba)
         ({"type": "NUMBER_GREATER_THAN_EQ", "values": [{"userEnteredValue": "8"}]},
          {"red": 0.72, "green": 0.93, "blue": 0.72}),
-        # >= 6.5 → verde chiaro
-        ({"type": "NUMBER_GREATER_THAN_EQ", "values": [{"userEnteredValue": "6.5"}]},
+        # >= 7 → verde chiaro (buon affare)
+        ({"type": "NUMBER_GREATER_THAN_EQ", "values": [{"userEnteredValue": "7"}]},
          {"red": 0.86, "green": 0.96, "blue": 0.82}),
-        # >= 5 → giallo
+        # >= 5 → giallo (standard)
         ({"type": "NUMBER_GREATER_THAN_EQ", "values": [{"userEnteredValue": "5"}]},
          {"red": 1.00, "green": 0.95, "blue": 0.80}),
-        # >= 3.5 → arancio
-        ({"type": "NUMBER_GREATER_THAN_EQ", "values": [{"userEnteredValue": "3.5"}]},
+        # >= 4 → arancio (sotto media)
+        ({"type": "NUMBER_GREATER_THAN_EQ", "values": [{"userEnteredValue": "4"}]},
          {"red": 0.99, "green": 0.85, "blue": 0.78}),
-        # < 3.5 → rosso
-        ({"type": "NUMBER_LESS", "values": [{"userEnteredValue": "3.5"}]},
+        # < 4 → rosso (da evitare)
+        ({"type": "NUMBER_LESS", "values": [{"userEnteredValue": "4"}]},
          {"red": 0.96, "green": 0.74, "blue": 0.74}),
     ]
     requests = []
