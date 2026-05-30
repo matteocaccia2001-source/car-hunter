@@ -64,14 +64,21 @@ def main():
     all_listings += run_scraper("AutoScout24", scrape_autoscout24)
     all_listings += run_scraper("AutoScout24.de", scrape_mobile)
 
-    # Subito.it: gira 1x/giorno (alle 12:00 UTC) o se forzato manualmente
+    # Subito.it: gira sempre se abbiamo Playwright (locale, gratis).
+    # Se siamo su CI con solo ScraperAPI ($), gira solo alle SUBITO_RUN_HOUR_UTC.
+    try:
+        from playwright.sync_api import sync_playwright  # noqa: F401
+        playwright_available = True
+    except ImportError:
+        playwright_available = False
+
     current_hour = datetime.now(timezone.utc).hour
     force_subito = os.environ.get("FORCE_SUBITO", "").strip() == "1"
-    if current_hour == SUBITO_RUN_HOUR_UTC or force_subito:
-        all_listings += run_scraper("Subito.it (render JS)", scrape_subito)
+    if playwright_available or force_subito or current_hour == SUBITO_RUN_HOUR_UTC:
+        all_listings += run_scraper("Subito.it", scrape_subito)
     else:
-        print(f"\n📡 Subito.it: skipped (gira solo alle {SUBITO_RUN_HOUR_UTC}:00 UTC per "
-              f"risparmiare credits ScraperAPI — ora attuale: {current_hour}:00 UTC)")
+        print(f"\n📡 Subito.it: skipped (no Playwright, ScraperAPI gira solo alle "
+              f"{SUBITO_RUN_HOUR_UTC}:00 UTC — ora attuale: {current_hour}:00 UTC)")
 
     filtered = filter_listings(all_listings)
     unique = deduplicate(filtered)

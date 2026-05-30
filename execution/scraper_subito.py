@@ -25,6 +25,14 @@ from utils import (
 SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY", "").strip()
 SCRAPER_API_URL = "http://api.scraperapi.com"
 
+# Playwright è preferito se disponibile (Mac locale): Chrome reale, gratis, no proxy
+PLAYWRIGHT_AVAILABLE = False
+try:
+    from playwright.sync_api import sync_playwright
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    pass
+
 SEARCHES = [
     {"query": "bmw e36",       "label": "BMW E36",       "make": "BMW",      "model": "E36"},
     {"query": "audi 80 a4",    "label": "Audi B4/B5",    "make": "Audi",     "model": "80/A4"},
@@ -39,17 +47,50 @@ def _extract_year(text):
     return int(m.group(1)) if m else 0
 
 
+def _fetch_with_playwright(target_url):
+    """Mac locale: Chrome headless con JS execution gratuita."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            ),
+            locale="it-IT",
+            viewport={"width": 1366, "height": 900},
+        )
+        page = context.new_page()
+        page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
+        try:
+            # Aspetta che skeleton venga sostituito da contenuto reale
+            page.wait_for_selector("article img[src*='sbito.it']", timeout=20000)
+        except Exception:
+            pass
+        html = page.content()
+        browser.close()
+    return html
+
+
 def _fetch_via_scraperapi(target_url):
-    """Fetch a URL through ScraperAPI con JS rendering (costa 10 credits/call)."""
+    """Fallback CI: ScraperAPI con JS rendering (costa 10 credits/call)."""
     params = {
         "api_key": SCRAPER_API_KEY,
         "url": target_url,
         "country_code": "it",
-        "render": "true",  # esegue JS → necessario per Subito.it (skeleton loading)
+        "render": "true",
     }
     resp = requests.get(SCRAPER_API_URL, params=params, timeout=90)
     resp.raise_for_status()
     return resp.text
+
+
+def _fetch(target_url):
+    """Prova Playwright (locale, gratis) → fallback ScraperAPI."""
+    if PLAYWRIGHT_AVAILABLE:
+        return _fetch_with_playwright(target_url)
+    if SCRAPER_API_KEY:
+        return _fetch_via_scraperapi(target_url)
+    raise RuntimeError("Né Playwright né SCRAPER_API_KEY disponibili")
 
 
 def _parse_subito(html, search, debug=False):
@@ -150,9 +191,12 @@ def _parse_subito(html, search, debug=False):
 
 
 def scrape_subito():
-    if not SCRAPER_API_KEY:
-        print("  Subito.it skipped: SCRAPER_API_KEY non configurato")
+    if not PLAYWRIGHT_AVAILABLE and not SCRAPER_API_KEY:
+        print("  Subito.it skipped: né Playwright né SCRAPER_API_KEY disponibili")
         return []
+
+    method = "Playwright (locale)" if PLAYWRIGHT_AVAILABLE else "ScraperAPI"
+    print(f"  Subito.it via {method}")
 
     results = []
     first = True
@@ -165,7 +209,7 @@ def scrape_subito():
         )
         print(f"  Subito.it (via ScraperAPI) → {search['query']}...")
         try:
-            html = _fetch_via_scraperapi(target)
+            html = _fetch(target)
             if first:
                 # Debug: scan available selectors to understand current Subito.it HTML
                 soup = BeautifulSoup(html, "html.parser")
