@@ -20,12 +20,7 @@ MAX_PRICE_MOTO = 3500
 YEAR_MIN_MOTO = 2005      # dal 2005 compreso in su
 
 SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY", "").strip()
-PLAYWRIGHT_AVAILABLE = False
-try:
-    from playwright.sync_api import sync_playwright
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    pass
+from playwright_session import PLAYWRIGHT_AVAILABLE, get_session
 
 SEARCHES = [
     {"query": "crf 450",      "make": "Honda", "model": "CRF 450", "label": "Honda CRF 450"},
@@ -42,36 +37,7 @@ def _extract_year(text):
 
 
 def _fetch_with_playwright(target_url):
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-dev-shm-usage",
-                "--no-sandbox",
-            ],
-        )
-        context = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-            ),
-            locale="it-IT",
-            timezone_id="Europe/Rome",
-            viewport={"width": 1366, "height": 900},
-        )
-        context.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
-        )
-        page = context.new_page()
-        page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
-        try:
-            page.wait_for_selector("article img[src*='sbito.it']", timeout=20000)
-        except Exception:
-            pass
-        html = page.content()
-        browser.close()
-    return html
+    return get_session().fetch(target_url, wait_selector="article img[src*='sbito.it']")
 
 
 def _fetch_via_scraperapi(target_url):
@@ -188,35 +154,28 @@ def scrape_moto():
         print("  Moto skipped: né Playwright né SCRAPER_API_KEY")
         return []
 
-    # Provo più formati URL — Subito potrebbe aver cambiato categoria
-    URL_FORMATS = [
-        "https://www.subito.it/annunci-italia/vendita/moto-e-scooter/?q={q}&ps=0&pe={pe}",
-        "https://www.subito.it/annunci-italia/vendita/moto/?q={q}&ps=0&pe={pe}",
-        "https://www.subito.it/annunci-italia/vendita/?q={q}&ps=0&pe={pe}",
-    ]
-
     results = []
     seen_q = set()
+    first = True
     for search in SEARCHES:
         if search["query"] in seen_q:
             continue
         seen_q.add(search["query"])
 
         q = search["query"].replace(" ", "+")
+        target = (
+            f"https://www.subito.it/annunci-italia/vendita/moto-e-scooter/"
+            f"?q={q}&ps=0&pe={MAX_PRICE_MOTO}"
+        )
         print(f"  Subito.it moto → {search['query']}...")
-
-        for url_idx, url_fmt in enumerate(URL_FORMATS):
-            target = url_fmt.format(q=q, pe=MAX_PRICE_MOTO)
-            print(f"    [try URL {url_idx+1}/{len(URL_FORMATS)}] {target}")
-            try:
-                html = _fetch(target)
-                items = _parse(html, search, debug=True)  # debug sempre on, finché non funziona
-                print(f"    → {len(items)} valid listings")
-                results.extend(items)
-                if items:
-                    break  # URL funziona, basta
-            except Exception as e:
-                print(f"    Moto error: {e}")
-            time.sleep(random.uniform(1, 2))
+        try:
+            html = _fetch(target)
+            items = _parse(html, search, debug=first)
+            first = False
+            print(f"    {len(items)} listings")
+            results.extend(items)
+        except Exception as e:
+            print(f"    Moto error: {e}")
+        time.sleep(random.uniform(2, 4))
 
     return results

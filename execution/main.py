@@ -16,6 +16,7 @@ from scraper_moto import scrape_moto
 from sheets_writer import write_listings, write_auctions, write_motos
 from scorer import score_listing
 from notifier import notify_high_score_listings, can_notify, MIN_SCORE
+from playwright_session import close_session
 from utils import MAX_PRICE, YEAR_MIN, YEAR_MAX
 
 
@@ -136,6 +137,9 @@ def main():
 
     print(f"\n📝 Writing aste to Google Sheets...")
     written_auctions = write_auctions(unique_auctions, spreadsheet_id)
+
+    # Chiudi browser Playwright condiviso
+    close_session()
 
     print(f"\n{'='*60}")
     print(f"✅ Done. {written} auto + {written_moto} moto + {written_auctions} aste aggiunti.")
