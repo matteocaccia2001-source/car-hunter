@@ -7,7 +7,7 @@ on:
   workflow_dispatch:                # avvio manuale dal pannello GitHub
     inputs:
       force_subito:
-        description: 'Forza esecuzione Subito.it (consuma ~3 credits ScraperAPI)'
+        description: 'Forza esecuzione Subito.it (consuma ~30 credits ScraperAPI)'
         type: boolean
         default: false
 
