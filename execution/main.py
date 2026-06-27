@@ -76,17 +76,16 @@ def main():
 
     current_time = datetime.now(timezone.utc)
     current_hour = current_time.hour
-    current_minute = current_time.minute
     
+    SUBITO_RUN_HOUR_UTC = 10  # 10:00 UTC = 12:00 Ora Italiana (in estate)
     force_subito = os.environ.get("FORCE_SUBITO", "").strip() == "1"
-    is_hourly = current_minute < 15
-    is_daytime = 6 <= current_hour <= 21
-    should_run_subito = playwright_available or force_subito or (is_hourly and is_daytime)
+    
+    should_run_subito = playwright_available or force_subito or (current_hour == SUBITO_RUN_HOUR_UTC)
 
     if should_run_subito:
         all_listings += run_scraper("Subito.it", scrape_subito)
     else:
-        print(f"\n📡 Subito.it: skipped (ScraperAPI configurato per 1 run/ora diurno)")
+        print(f"\n📡 Subito.it: skipped (ScraperAPI configurato per girare alle 12:00 italiane)")
 
     filtered = filter_listings(all_listings)
     unique = deduplicate(filtered)

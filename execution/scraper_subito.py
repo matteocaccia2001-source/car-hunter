@@ -96,7 +96,7 @@ def _fetch_via_scraperapi(target_url):
         "api_key": SCRAPER_API_KEY,
         "url": target_url,
         "country_code": "it",
-        "render": "false",
+        "render": "true",
     }
     resp = requests.get(SCRAPER_API_URL, params=params, timeout=90)
     resp.raise_for_status()
