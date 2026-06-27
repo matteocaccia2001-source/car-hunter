@@ -3,7 +3,7 @@ name: Car Hunter
 on:
   # Esecuzione pianificata (cron) per quando il Mac è spento.
   schedule:
-    - cron: '0 6,12,18,0 * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch:                # avvio manuale dal pannello GitHub
     inputs:
       force_subito:
