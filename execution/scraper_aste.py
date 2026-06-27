@@ -177,6 +177,4 @@ def scrape_aste():
     results = []
     print("  → AstaTelematica.it")
     results += scrape_astatelematica()
-    print("  → Gobid.it")
-    results += scrape_gobid()
     return results

@@ -114,34 +114,8 @@ def main():
             sent = notify_high_score_listings(new_listings)
             print(f"  ✅ {sent} messaggi inviati")
 
-    # ─── MOTO (Honda CRF 450) ──────────────────────────────────────────
+    # ─── MOTO (Honda CRF 450) RIMOSSO ──────────────────────────────────
     written_moto = 0
-    if should_run_subito:
-        # Pausa lunga prima di toccare di nuovo Subito (anti-rate-limit)
-        import time as _time
-        print(f"\n⏳ Pausa 60s prima di moto (per non far scattare il rate-limit Subito)...")
-        _time.sleep(60)
-
-        print(f"\n🏍 Moto...")
-        moto_listings = run_scraper("Moto (Subito.it)", scrape_moto)
-        moto_unique = deduplicate(moto_listings)
-        for m in moto_unique:
-            m["score"] = score_listing(m)
-        moto_unique.sort(key=lambda x: (-x.get("score", 0), x.get("price", 999999)))
-        print(f"  After dedup:      {len(moto_unique)}")
-
-        print(f"\n📝 Writing moto to Google Sheets...")
-        written_moto, new_motos = write_motos(moto_unique, spreadsheet_id)
-
-        # WhatsApp anche per moto nuove con score alto
-        if can_notify() and new_motos:
-            high_score_motos = [m for m in new_motos if (m.get("score") or 0) >= MIN_SCORE]
-            if high_score_motos:
-                print(f"\n📱 Invio {len(high_score_motos)} notifiche WhatsApp moto (score >= {MIN_SCORE})...")
-                sent = notify_high_score_listings(new_motos)
-                print(f"  ✅ {sent} messaggi inviati")
-    else:
-        print(f"\n🏍 Moto: skipped (ScraperAPI configurato per 1 run/ora diurno)")
 
     # ─── ASTE GIUDIZIARIE ──────────────────────────────────────────────
     print(f"\n🔨 Aste Giudiziarie...")
