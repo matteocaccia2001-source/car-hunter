@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Subito.it usa render=true (10 credits/call). 3 query × 10 × 30 giorni = 900 credits/mese.
-# Quindi gira solo 1 volta al giorno (alle 12:00 UTC).
+# Subito.it usa render=false (1 credito/call). 3 query × 1 × 16 ore = 48 chiamate/giorno.
+# Gira 1 volta all'ora, solo di giorno (6-21 UTC).
 SUBITO_RUN_HOUR_UTC = 12
 
 from scraper_autoscout24 import scrape_autoscout24
@@ -74,13 +74,19 @@ def main():
     except ImportError:
         playwright_available = False
 
-    current_hour = datetime.now(timezone.utc).hour
+    current_time = datetime.now(timezone.utc)
+    current_hour = current_time.hour
+    current_minute = current_time.minute
+    
     force_subito = os.environ.get("FORCE_SUBITO", "").strip() == "1"
-    if playwright_available or force_subito or current_hour == SUBITO_RUN_HOUR_UTC:
+    is_hourly = current_minute < 15
+    is_daytime = 6 <= current_hour <= 21
+    should_run_subito = playwright_available or force_subito or (is_hourly and is_daytime)
+
+    if should_run_subito:
         all_listings += run_scraper("Subito.it", scrape_subito)
     else:
-        print(f"\n📡 Subito.it: skipped (no Playwright, ScraperAPI gira solo alle "
-              f"{SUBITO_RUN_HOUR_UTC}:00 UTC — ora attuale: {current_hour}:00 UTC)")
+        print(f"\n📡 Subito.it: skipped (ScraperAPI configurato per 1 run/ora diurno)")
 
     filtered = filter_listings(all_listings)
     unique = deduplicate(filtered)
@@ -109,29 +115,33 @@ def main():
             print(f"  ✅ {sent} messaggi inviati")
 
     # ─── MOTO (Honda CRF 450) ──────────────────────────────────────────
-    # Pausa lunga prima di toccare di nuovo Subito (anti-rate-limit)
-    import time as _time
-    print(f"\n⏳ Pausa 60s prima di moto (per non far scattare il rate-limit Subito)...")
-    _time.sleep(60)
+    written_moto = 0
+    if should_run_subito:
+        # Pausa lunga prima di toccare di nuovo Subito (anti-rate-limit)
+        import time as _time
+        print(f"\n⏳ Pausa 60s prima di moto (per non far scattare il rate-limit Subito)...")
+        _time.sleep(60)
 
-    print(f"\n🏍 Moto...")
-    moto_listings = run_scraper("Moto (Subito.it)", scrape_moto)
-    moto_unique = deduplicate(moto_listings)
-    for m in moto_unique:
-        m["score"] = score_listing(m)
-    moto_unique.sort(key=lambda x: (-x.get("score", 0), x.get("price", 999999)))
-    print(f"  After dedup:      {len(moto_unique)}")
+        print(f"\n🏍 Moto...")
+        moto_listings = run_scraper("Moto (Subito.it)", scrape_moto)
+        moto_unique = deduplicate(moto_listings)
+        for m in moto_unique:
+            m["score"] = score_listing(m)
+        moto_unique.sort(key=lambda x: (-x.get("score", 0), x.get("price", 999999)))
+        print(f"  After dedup:      {len(moto_unique)}")
 
-    print(f"\n📝 Writing moto to Google Sheets...")
-    written_moto, new_motos = write_motos(moto_unique, spreadsheet_id)
+        print(f"\n📝 Writing moto to Google Sheets...")
+        written_moto, new_motos = write_motos(moto_unique, spreadsheet_id)
 
-    # WhatsApp anche per moto nuove con score alto
-    if can_notify() and new_motos:
-        high_score_motos = [m for m in new_motos if (m.get("score") or 0) >= MIN_SCORE]
-        if high_score_motos:
-            print(f"\n📱 Invio {len(high_score_motos)} notifiche WhatsApp moto (score >= {MIN_SCORE})...")
-            sent = notify_high_score_listings(new_motos)
-            print(f"  ✅ {sent} messaggi inviati")
+        # WhatsApp anche per moto nuove con score alto
+        if can_notify() and new_motos:
+            high_score_motos = [m for m in new_motos if (m.get("score") or 0) >= MIN_SCORE]
+            if high_score_motos:
+                print(f"\n📱 Invio {len(high_score_motos)} notifiche WhatsApp moto (score >= {MIN_SCORE})...")
+                sent = notify_high_score_listings(new_motos)
+                print(f"  ✅ {sent} messaggi inviati")
+    else:
+        print(f"\n🏍 Moto: skipped (ScraperAPI configurato per 1 run/ora diurno)")
 
     # ─── ASTE GIUDIZIARIE ──────────────────────────────────────────────
     print(f"\n🔨 Aste Giudiziarie...")

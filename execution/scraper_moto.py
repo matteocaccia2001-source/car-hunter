@@ -87,7 +87,7 @@ def _fetch_with_playwright(target_url):
 def _fetch_via_scraperapi(target_url):
     resp = requests.get(
         "http://api.scraperapi.com",
-        params={"api_key": SCRAPER_API_KEY, "url": target_url, "country_code": "it", "render": "true"},
+        params={"api_key": SCRAPER_API_KEY, "url": target_url, "country_code": "it", "render": "false"},
         timeout=90,
     )
     resp.raise_for_status()
