@@ -47,7 +47,7 @@ immatricolate tra il 1991 e il 1996, entro 300 km da Bergamo, a meno di €6.000
 - **Distanza**: massimo 300 km da Bergamo (45.6983°N, 9.6773°E)
 - **Modelli target**: BMW E36 (Serie 3), Audi B5 (80/A4), Mercedes 190E (W201)
 - **Duplicati**: un listing_id per annuncio — mai scrivere lo stesso due volte
-- **Frequenza**: ogni 6 ore via GitHub Actions (gratuito)
+- **Frequenza**: ogni 2 ore via GitHub Actions (gratuito, nessun servizio a pagamento)
 
 ## Piattaforme Coperte
 
@@ -102,8 +102,15 @@ car-hunter/
 
 ## Trigger di Esecuzione
 
-- **Automatico**: cron `0 6,12,18,0 * * *` (06:00, 12:00, 18:00, 00:00 UTC)
+- **Automatico**: cron `0 */2 * * *` (ogni 2 ore)
 - **Manuale**: GitHub Actions → "Run workflow"
+
+## Scraping di Subito.it
+
+Subito **non** blocca gli IP dei data center: rifiuta le richieste che non
+arrivano da un browser reale (403 anche da IP residenziale con `requests`).
+Serve quindi Playwright + Chromium, che funziona su GitHub Actions esattamente
+come in locale. Nessun servizio di proxy/scraping a pagamento è necessario.
 
 ## Fase B.L.A.S.T. — Stato
 

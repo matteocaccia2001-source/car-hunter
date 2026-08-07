@@ -1,12 +1,8 @@
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
-
-# Subito.it usa render=false (1 credito/call). 3 query × 1 × 16 ore = 48 chiamate/giorno.
-# Gira 1 volta all'ora, solo di giorno (6-21 UTC).
-SUBITO_RUN_HOUR_UTC = 12
 
 from scraper_autoscout24 import scrape_autoscout24
 from scraper_subito import scrape_subito
@@ -66,26 +62,8 @@ def main():
     all_listings += run_scraper("AutoScout24", scrape_autoscout24)
     all_listings += run_scraper("AutoScout24.de", scrape_mobile)
 
-    # Subito.it: gira sempre se abbiamo Playwright (locale, gratis).
-    # Se siamo su CI con solo ScraperAPI ($), gira solo alle SUBITO_RUN_HOUR_UTC.
-    try:
-        from playwright.sync_api import sync_playwright  # noqa: F401
-        playwright_available = True
-    except ImportError:
-        playwright_available = False
-
-    current_time = datetime.now(timezone.utc)
-    current_hour = current_time.hour
-    
-    SUBITO_RUN_HOUR_UTC = 10  # 10:00 UTC = 12:00 Ora Italiana (in estate)
-    force_subito = os.environ.get("FORCE_SUBITO", "").strip() == "1"
-    
-    should_run_subito = playwright_available or force_subito or (current_hour == SUBITO_RUN_HOUR_UTC)
-
-    if should_run_subito:
-        all_listings += run_scraper("Subito.it", scrape_subito)
-    else:
-        print(f"\n📡 Subito.it: skipped (ScraperAPI configurato per girare alle 12:00 italiane)")
+    # Subito.it gira a ogni run: Playwright è gratis e non ha limiti di credits.
+    all_listings += run_scraper("Subito.it", scrape_subito)
 
     filtered = filter_listings(all_listings)
     unique = deduplicate(filtered)

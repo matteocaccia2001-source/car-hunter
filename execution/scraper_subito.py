@@ -1,16 +1,16 @@
 """
-Subito.it scraper via ScraperAPI.
-Subito.it blocca i data center IPs (Azure/GitHub Actions),
-quindi instradiamo le richieste via ScraperAPI (free tier: 1.000 chiamate/mese).
+Subito.it scraper via Playwright.
 
-Se SCRAPER_API_KEY non è settato → lo scraper si auto-disabilita.
+Subito.it non blocca gli IP dei data center: rifiuta le richieste che non
+arrivano da un browser vero (403 anche da IP residenziale con requests).
+Con Chromium headless passa da qualunque IP — verificato su GitHub Actions
+(runner 52.160.149.130 → 26 annunci, identici a quelli ottenuti in locale).
 
-Per minimizzare i credits:
-- Solo 3 query (una per modello target)
-- 1 pagina per query → 3 chiamate/run → ~360/mese (4 run/giorno × 30)
+Quindi niente ScraperAPI e nessun limite di credits: gira ovunque, gratis.
+Se Playwright non è installato → lo scraper si auto-disabilita.
+
+3 query (una per modello target), 1 pagina per query.
 """
-import os
-import requests
 from bs4 import BeautifulSoup
 import time
 import random
@@ -21,9 +21,6 @@ from utils import (
     geocode_city, distance_from_bergamo, make_listing_id, parse_price,
     MAX_DISTANCE_KM, MAX_PRICE, YEAR_MIN, YEAR_MAX,
 )
-
-SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY", "").strip()
-SCRAPER_API_URL = "http://api.scraperapi.com"
 
 PLAYWRIGHT_AVAILABLE = False
 try:
@@ -90,26 +87,10 @@ def _fetch_with_playwright(target_url):
     return html
 
 
-def _fetch_via_scraperapi(target_url):
-    """Fallback CI: ScraperAPI con JS rendering (costa 10 credits/call)."""
-    params = {
-        "api_key": SCRAPER_API_KEY,
-        "url": target_url,
-        "country_code": "it",
-        "render": "true",
-    }
-    resp = requests.get(SCRAPER_API_URL, params=params, timeout=90)
-    resp.raise_for_status()
-    return resp.text
-
-
 def _fetch(target_url):
-    """Prova Playwright (locale, gratis) → fallback ScraperAPI."""
-    if PLAYWRIGHT_AVAILABLE:
-        return _fetch_with_playwright(target_url)
-    if SCRAPER_API_KEY:
-        return _fetch_via_scraperapi(target_url)
-    raise RuntimeError("Né Playwright né SCRAPER_API_KEY disponibili")
+    if not PLAYWRIGHT_AVAILABLE:
+        raise RuntimeError("Playwright non disponibile")
+    return _fetch_with_playwright(target_url)
 
 
 def _parse_subito(html, search, debug=False):
@@ -210,23 +191,22 @@ def _parse_subito(html, search, debug=False):
 
 
 def scrape_subito():
-    if not PLAYWRIGHT_AVAILABLE and not SCRAPER_API_KEY:
-        print("  Subito.it skipped: né Playwright né SCRAPER_API_KEY disponibili")
+    if not PLAYWRIGHT_AVAILABLE:
+        print("  Subito.it skipped: Playwright non disponibile")
         return []
 
-    method = "Playwright (locale)" if PLAYWRIGHT_AVAILABLE else "ScraperAPI"
-    print(f"  Subito.it via {method}")
+    print("  Subito.it via Playwright")
 
     results = []
     first = True
     for search in SEARCHES:
         q = search['query'].replace(' ', '+')
-        # Filtro prezzo nell'URL → massimizza il signal:noise per ogni call (1 call = 10 credits)
+        # Filtro prezzo nell'URL → massimizza il signal:noise di ogni pagina
         target = (
             f"https://www.subito.it/annunci-italia/vendita/auto/"
             f"?q={q}&ps={0}&pe={MAX_PRICE}"
         )
-        print(f"  Subito.it (via ScraperAPI) → {search['query']}...")
+        print(f"  Subito.it → {search['query']}...")
         try:
             html = _fetch(target)
             if first:
