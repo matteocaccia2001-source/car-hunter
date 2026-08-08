@@ -7,7 +7,7 @@ from datetime import datetime
 
 from utils import (
     geocode_city, distance_from_bergamo, make_listing_id, safe_int,
-    MAX_DISTANCE_KM, MAX_PRICE, YEAR_MIN, YEAR_MAX, parse_price, parse_km,
+    MAX_DISTANCE_KM, TARGETS, passes_target, parse_price, parse_km,
 )
 
 HEADERS = {
@@ -20,19 +20,12 @@ HEADERS = {
     "DNT": "1",
 }
 
-SEARCHES = [
-    {"make": "bmw",           "year_from": YEAR_MIN, "year_to": YEAR_MAX, "label": "BMW E36"},
-    {"make": "audi",          "year_from": YEAR_MIN, "year_to": YEAR_MAX, "label": "Audi B4/B5"},
-    {"make": "mercedes-benz", "year_from": YEAR_MIN, "year_to": 1993,     "label": "Mercedes 190E"},
-]
-
-
-def _build_url(search, page):
+def _build_url(target, page):
     return (
-        f"https://www.autoscout24.it/lst/{search['make']}"
+        f"https://www.autoscout24.it/lst/{target['as24_slug']}"
         f"?atype=C&cy=I&damaged_listing=exclude"
-        f"&fregfrom={search['year_from']}&fregto={search['year_to']}"
-        f"&priceto={MAX_PRICE}&sort=standard&ustate=N%2CU"
+        f"&fregfrom={target['year_from']}&fregto={target['year_to']}"
+        f"&priceto={target['max_price']}&sort=standard&ustate=N%2CU"
         f"&page={page}"
     )
 
@@ -130,17 +123,14 @@ def _get_km(item):
     return safe_int(ml or vehicle.get("km") or item.get("mileage") or 0)
 
 
-def _parse_item_json(item, label, debug=False):
+def _parse_item_json(item, target, debug=False):
     try:
         if debug:
             _debug_item(item)
 
         price = _get_price(item)
-        if not price or price > MAX_PRICE:
-            return None
-
         year = _get_year(item)
-        if year and not (YEAR_MIN <= year <= YEAR_MAX):
+        if not passes_target(year, price, target):
             return None
 
         km = _get_km(item)
@@ -187,14 +177,15 @@ def _parse_item_json(item, label, debug=False):
             "phone": "",
             "listing_id": make_listing_id(url, title, price),
             "found_at": datetime.now().isoformat(),
-            "label": label,
+            "label": target["label"],
+            "target_key": target["key"],
         }
     except Exception as e:
         print(f"      AS24 item error: {e}")
         return None
 
 
-def _parse_html_fallback(soup, label):
+def _parse_html_fallback(soup, target):
     results = []
     articles = soup.select("article[data-guid], div[data-item-name='listing-article']")
     for art in articles:
@@ -207,7 +198,7 @@ def _parse_html_fallback(soup, label):
                 continue
             title = title_el.get_text(strip=True)
             price = parse_price(price_el.get_text(strip=True))
-            if not price or price > MAX_PRICE:
+            if not price or price > target["max_price"]:
                 continue
             url = link_el["href"] if link_el else ""
             if url and not url.startswith("http"):
@@ -218,12 +209,13 @@ def _parse_html_fallback(soup, label):
             if dist is not None and dist > MAX_DISTANCE_KM:
                 continue
             results.append({
-                "source": "AutoScout24", "title": title, "make": label.split()[0],
+                "source": "AutoScout24", "title": title, "make": target["make"],
                 "model": "", "year": 0, "price": price, "km": 0, "city": city,
                 "distance_km": dist, "condition": "Usato", "url": url,
                 "seller": "", "phone": "",
                 "listing_id": make_listing_id(url, title, price),
-                "found_at": datetime.now().isoformat(), "label": label,
+                "found_at": datetime.now().isoformat(),
+                "label": target["label"], "target_key": target["key"],
             })
         except Exception:
             pass
@@ -236,13 +228,13 @@ def scrape_autoscout24():
     session.headers.update(HEADERS)
     first_run = True
 
-    for search in SEARCHES:
-        label = search["label"]
-        print(f"  AutoScout24 → {label}...")
+    for target in TARGETS:
+        print(f"  AutoScout24 → {target['label']} "
+              f"({target['year_from']}-{target['year_to']}, max {target['max_price']}€)...")
 
         for page in range(1, 6):
             try:
-                url = _build_url(search, page)
+                url = _build_url(target, page)
                 resp = session.get(url, timeout=25)
                 resp.raise_for_status()
                 soup = BeautifulSoup(resp.text, "html.parser")
@@ -257,14 +249,14 @@ def scrape_autoscout24():
                     for i, item in enumerate(raw_items):
                         # Debug the first item of the whole run to understand structure
                         debug = (first_run and i == 0)
-                        parsed = _parse_item_json(item, label, debug=debug)
+                        parsed = _parse_item_json(item, target, debug=debug)
                         if parsed:
                             page_results.append(parsed)
                         if debug:
                             first_run = False
                 else:
                     print(f"    page {page}: no __NEXT_DATA__, trying HTML fallback")
-                    page_results = _parse_html_fallback(soup, label)
+                    page_results = _parse_html_fallback(soup, target)
 
                 print(f"    page {page}: {len(page_results)} valid listings")
                 results.extend(page_results)

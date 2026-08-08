@@ -19,7 +19,7 @@ from datetime import datetime
 
 from utils import (
     geocode_city, distance_from_bergamo, make_listing_id, parse_price,
-    MAX_DISTANCE_KM, MAX_PRICE, YEAR_MIN, YEAR_MAX,
+    MAX_DISTANCE_KM, TARGETS, passes_target, YEAR_MIN, YEAR_MAX,
 )
 
 PLAYWRIGHT_AVAILABLE = False
@@ -29,18 +29,22 @@ try:
 except ImportError:
     pass
 
-SEARCHES = [
-    {"query": "bmw e36",       "label": "BMW E36",       "make": "BMW",      "model": "E36"},
-    {"query": "audi 80 a4",    "label": "Audi B4/B5",    "make": "Audi",     "model": "80/A4"},
-    {"query": "mercedes 190e", "label": "Mercedes 190E", "make": "Mercedes", "model": "190E"},
-]
+# Subito scrive l'immatricolazione come "01/1995": quel formato è il segnale più
+# affidabile, perché un anno nudo può essere il chilometraggio ("2000 Km").
+_REG_DATE_RE = re.compile(r'\b\d{1,2}/(\d{4})\b')
+_BARE_YEAR_RE = re.compile(r'\b(19\d{2}|20\d{2})\b')
 
 
 def _extract_year(text):
+    """Anno di immatricolazione, limitato all'arco coperto dai target."""
     if not text:
         return 0
-    m = re.search(r'\b(199[0-9]|200[0-6])\b', text)
-    return int(m.group(1)) if m else 0
+    for regex in (_REG_DATE_RE, _BARE_YEAR_RE):
+        for m in regex.finditer(text):
+            year = int(m.group(1))
+            if YEAR_MIN <= year <= YEAR_MAX:
+                return year
+    return 0
 
 
 def _fetch_with_playwright(target_url):
@@ -93,7 +97,7 @@ def _fetch(target_url):
     return _fetch_with_playwright(target_url)
 
 
-def _parse_subito(html, search, debug=False):
+def _parse_subito(html, target, debug=False):
     results = []
     soup = BeautifulSoup(html, "html.parser")
 
@@ -146,12 +150,9 @@ def _parse_subito(html, search, debug=False):
                 m = re.search(r'(\d{1,2}[\.\s]?\d{3})\s*€', text)
                 if m:
                     price = int(m.group(1).replace(".", "").replace(" ", ""))
-            if not price or price > MAX_PRICE:
-                continue
-
             # Year
             year = _extract_year(title) or _extract_year(text)
-            if year and not (YEAR_MIN <= year <= YEAR_MAX):
+            if not passes_target(year, price, target):
                 continue
 
             # City
@@ -169,8 +170,8 @@ def _parse_subito(html, search, debug=False):
             results.append({
                 "source": "Subito.it",
                 "title": title,
-                "make": search["make"],
-                "model": search["model"],
+                "make": target["make"],
+                "model": target["model"],
                 "year": year,
                 "price": price,
                 "km": 0,
@@ -182,7 +183,8 @@ def _parse_subito(html, search, debug=False):
                 "phone": "",
                 "listing_id": make_listing_id(url, title, price),
                 "found_at": datetime.now().isoformat(),
-                "label": search["label"],
+                "label": target["label"],
+                "target_key": target["key"],
             })
         except Exception as e:
             print(f"      Subito item error: {e}")
@@ -199,16 +201,17 @@ def scrape_subito():
 
     results = []
     first = True
-    for search in SEARCHES:
-        q = search['query'].replace(' ', '+')
+    for target in TARGETS:
+        q = target['query'].replace(' ', '+')
         # Filtro prezzo nell'URL → massimizza il signal:noise di ogni pagina
-        target = (
+        search_url = (
             f"https://www.subito.it/annunci-italia/vendita/auto/"
-            f"?q={q}&ps={0}&pe={MAX_PRICE}"
+            f"?q={q}&ps={0}&pe={target['max_price']}"
         )
-        print(f"  Subito.it → {search['query']}...")
+        print(f"  Subito.it → {target['query']} "
+              f"({target['year_from']}-{target['year_to']}, max {target['max_price']}€)...")
         try:
-            html = _fetch(target)
+            html = _fetch(search_url)
             if first:
                 # Debug: scan available selectors to understand current Subito.it HTML
                 soup = BeautifulSoup(html, "html.parser")
@@ -225,11 +228,11 @@ def scrape_subito():
                         if found[0].get("class"):
                             print(f"    [debug]   first match classes: {found[0]['class']}")
                 first = False
-            items = _parse_subito(html, search, debug=(search == SEARCHES[0]))
+            items = _parse_subito(html, target, debug=(target is TARGETS[0]))
             print(f"    {len(items)} listings")
             results.extend(items)
         except Exception as e:
-            print(f"    Subito error ('{search['query']}'): {e}")
+            print(f"    Subito error ('{target['query']}'): {e}")
         # Pausa lunga tra query Subito → riduce il rischio di rate-limit/IP ban
         time.sleep(random.uniform(15, 25))
 

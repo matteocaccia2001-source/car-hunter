@@ -12,7 +12,7 @@ from scraper_moto import scrape_moto
 from sheets_writer import write_listings, write_auctions, write_motos
 from scorer import score_listing
 from notifier import notify_high_score_listings, can_notify, MIN_SCORE
-from utils import MAX_PRICE, YEAR_MIN, YEAR_MAX
+from utils import TARGETS_BY_KEY, passes_target, MAX_PRICE, YEAR_MIN, YEAR_MAX
 
 
 def deduplicate(listings):
@@ -25,13 +25,19 @@ def deduplicate(listings):
 
 
 def filter_listings(listings):
+    """Ogni annuncio è validato contro la finestra del proprio target.
+    Un filtro unico non basta: E36 (1990-2000) ed E92 (2006-2013) non si toccano."""
     out = []
     for l in listings:
-        price = l.get("price", 0)
-        year = l.get("year", 0)
-        if price <= 0 or price > MAX_PRICE:
-            continue
-        if year and not (YEAR_MIN <= year <= YEAR_MAX):
+        target = TARGETS_BY_KEY.get(l.get("target_key"))
+        if target is None:
+            # Annuncio senza target (scraper vecchio): estremi complessivi
+            price, year = l.get("price", 0), l.get("year", 0)
+            if price <= 0 or price > MAX_PRICE:
+                continue
+            if year and not (YEAR_MIN <= year <= YEAR_MAX):
+                continue
+        elif not passes_target(l.get("year", 0), l.get("price", 0), target):
             continue
         out.append(l)
     return out

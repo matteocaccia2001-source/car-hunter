@@ -6,9 +6,62 @@ import requests
 BERGAMO_LAT = 45.6983
 BERGAMO_LON = 9.6773
 MAX_DISTANCE_KM = 300
-MAX_PRICE = 6000
-YEAR_MIN = 1991
-YEAR_MAX = 1996
+
+# ─── TARGET ────────────────────────────────────────────────────────────────
+# Unica fonte di verità per i modelli cercati. Ogni target porta la propria
+# finestra di produzione e il proprio tetto di prezzo: un filtro globale non
+# può funzionare, perché E36 (1990-2000) ed E92 (2006-2013) non si sovrappongono.
+#
+#   as24_slug → percorso AutoScout24 (.it e .de usano gli stessi slug)
+#   query     → testo per i siti che cercano per stringa (Subito, aste)
+#
+# Nota: su AutoScout E36, E46 ed E92 condividono lo slug "serie-3" — a
+# distinguerli è solo la finestra anni. Gli anni che si sovrappongono
+# producono doppioni, che la deduplica per listing_id assorbe.
+TARGETS = [
+    {
+        "key": "E36", "label": "BMW E36", "make": "BMW", "model": "Serie 3 E36",
+        "as24_slug": "bmw/serie-3", "query": "bmw e36",
+        "year_from": 1990, "year_to": 2000, "max_price": 6000,
+    },
+    {
+        "key": "E46", "label": "BMW E46", "make": "BMW", "model": "Serie 3 E46",
+        "as24_slug": "bmw/serie-3", "query": "bmw e46",
+        "year_from": 1998, "year_to": 2006, "max_price": 8000,
+    },
+    {
+        "key": "E92", "label": "BMW E92", "make": "BMW", "model": "Serie 3 E92",
+        "as24_slug": "bmw/serie-3", "query": "bmw e92",
+        "year_from": 2006, "year_to": 2013, "max_price": 12000,
+    },
+    {
+        "key": "B5", "label": "Audi A4 B5", "make": "Audi", "model": "A4 B5",
+        "as24_slug": "audi/a4", "query": "audi a4 b5",
+        "year_from": 1994, "year_to": 2001, "max_price": 6000,
+    },
+    {
+        "key": "190E", "label": "Mercedes 190E", "make": "Mercedes", "model": "190E W201",
+        "as24_slug": "mercedes-benz/190", "query": "mercedes 190e",
+        "year_from": 1991, "year_to": 1993, "max_price": 6000,
+    },
+]
+
+TARGETS_BY_KEY = {t["key"]: t for t in TARGETS}
+
+# Estremi complessivi: servono dove un solo valore deve coprire tutti i target
+# (filtro grezzo nell'URL, regex sugli anni). Il controllo fine è per target.
+MAX_PRICE = max(t["max_price"] for t in TARGETS)
+YEAR_MIN = min(t["year_from"] for t in TARGETS)
+YEAR_MAX = max(t["year_to"] for t in TARGETS)
+
+
+def passes_target(year, price, target):
+    """Vero se anno e prezzo rientrano nella finestra del target."""
+    if not price or price <= 0 or price > target["max_price"]:
+        return False
+    if year and not (target["year_from"] <= year <= target["year_to"]):
+        return False
+    return True
 
 _city_cache = {}
 

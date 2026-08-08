@@ -14,7 +14,7 @@ import random
 import re
 from datetime import datetime
 
-from utils import make_listing_id, MAX_PRICE
+from utils import make_listing_id
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -23,12 +23,15 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
+# Le aste non hanno filtro di anno né di modello preciso (spesso il lotto non li
+# indica), quindi qui si cerca per testo. "BMW serie 3" fa da rete larga su E36/E46/E92.
 SEARCHES = [
-    {"query": "BMW E36",      "make": "BMW",       "model": "E36",   "label": "BMW E36"},
-    {"query": "BMW serie 3",  "make": "BMW",       "model": "Serie 3","label": "BMW E36"},
-    {"query": "Audi 80",      "make": "Audi",      "model": "80",    "label": "Audi B4/B5"},
-    {"query": "Audi A4",      "make": "Audi",      "model": "A4",    "label": "Audi B5"},
-    {"query": "Mercedes 190", "make": "Mercedes",  "model": "190E",  "label": "Mercedes 190E"},
+    {"query": "BMW E36",      "make": "BMW",       "model": "Serie 3 E36", "label": "BMW E36"},
+    {"query": "BMW E46",      "make": "BMW",       "model": "Serie 3 E46", "label": "BMW E46"},
+    {"query": "BMW E92",      "make": "BMW",       "model": "Serie 3 E92", "label": "BMW E92"},
+    {"query": "BMW serie 3",  "make": "BMW",       "model": "Serie 3",     "label": "BMW Serie 3"},
+    {"query": "Audi A4",      "make": "Audi",      "model": "A4 B5",       "label": "Audi A4 B5"},
+    {"query": "Mercedes 190", "make": "Mercedes",  "model": "190E W201",   "label": "Mercedes 190E"},
 ]
 
 

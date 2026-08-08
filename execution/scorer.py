@@ -1,7 +1,24 @@
 """
 Score 1-10 per ogni annuncio.
 Base 5.0 + bonus/malus su prezzo, km, distanza, venditore, keyword.
+
+Il punteggio sul prezzo è relativo al tetto del target, non assoluto: una E92
+a 7.000€ (tetto 12.000) è un affare, una E36 a 7.000€ (tetto 6.000) è fuori
+budget. Con tetto 6.000 le soglie coincidono con quelle originali
+(1500/2500/3500/4500/5500).
 """
+from utils import TARGETS_BY_KEY
+
+DEFAULT_MAX_PRICE = 6000
+
+# Soglie espresse come frazione del tetto, derivate dalle bande originali su 6.000€.
+_PRICE_BANDS = [
+    (1500 / DEFAULT_MAX_PRICE, 2.5),
+    (2500 / DEFAULT_MAX_PRICE, 1.8),
+    (3500 / DEFAULT_MAX_PRICE, 1.2),
+    (4500 / DEFAULT_MAX_PRICE, 0.6),
+    (5500 / DEFAULT_MAX_PRICE, 0.0),
+]
 
 POSITIVE_KEYWORDS = {
     "asi": 1.5,                       # certificata ASI (auto storica)
@@ -50,20 +67,18 @@ def score_listing(listing):
     """Restituisce un float 1.0–10.0."""
     score = 5.0
 
-    # ─── Prezzo ────────────────────────────────────────
+    # ─── Prezzo (relativo al tetto del target) ─────────
     price = listing.get("price", 0) or 0
-    if 0 < price <= 1500:
-        score += 2.5
-    elif price <= 2500:
-        score += 1.8
-    elif price <= 3500:
-        score += 1.2
-    elif price <= 4500:
-        score += 0.6
-    elif price <= 5500:
-        score += 0.0
-    else:
-        score -= 0.5
+    target = TARGETS_BY_KEY.get(listing.get("target_key"))
+    cap = target["max_price"] if target else DEFAULT_MAX_PRICE
+    if price > 0:
+        ratio = price / cap
+        for threshold, bonus in _PRICE_BANDS:
+            if ratio <= threshold:
+                score += bonus
+                break
+        else:
+            score -= 0.5
 
     # ─── Chilometri ────────────────────────────────────
     km = listing.get("km", 0) or 0

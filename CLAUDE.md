@@ -1,8 +1,9 @@
 # CAR HUNTER — Costituzione del Progetto
 
 ## North Star
-Trovare automaticamente annunci di BMW E36, Audi B5 e Mercedes 190E
-immatricolate tra il 1991 e il 1996, entro 300 km da Bergamo, a meno di €6.000.
+Trovare automaticamente annunci di BMW E36, BMW E46, BMW E92, Audi A4 B5 e
+Mercedes 190E entro 300 km da Bergamo, ciascuno nella propria finestra di
+produzione e nel proprio budget.
 
 ## Schema Dati
 
@@ -42,10 +43,30 @@ immatricolate tra il 1991 e il 1996, entro 300 km da Bergamo, a meno di €6.000
 
 ## Regole Comportamentali
 
-- **Anno**: solo 1991–1996 inclusi (30–35 anni fa dal 2026)
-- **Prezzo**: massimo €6.000 (annunci senza prezzo = scartati)
+- **Anno e prezzo**: per target, non globali (vedi tabella sotto). Un filtro
+  unico non può funzionare: E36 ed E92 non si sovrappongono né come anni né
+  come budget. Annunci senza prezzo = scartati.
 - **Distanza**: massimo 300 km da Bergamo (45.6983°N, 9.6773°E)
-- **Modelli target**: BMW E36 (Serie 3), Audi B5 (80/A4), Mercedes 190E (W201)
+
+### Target
+
+| Key  | Modello       | Anni      | Tetto   | Slug AutoScout      | Query testuale |
+|------|---------------|-----------|---------|---------------------|----------------|
+| E36  | BMW E36       | 1990–2000 | €6.000  | `bmw/serie-3`       | `bmw e36`      |
+| E46  | BMW E46       | 1998–2006 | €8.000  | `bmw/serie-3`       | `bmw e46`      |
+| E92  | BMW E92       | 2006–2013 | €12.000 | `bmw/serie-3`       | `bmw e92`      |
+| B5   | Audi A4 B5    | 1994–2001 | €6.000  | `audi/a4`           | `audi a4 b5`   |
+| 190E | Mercedes 190E | 1991–1993 | €6.000  | `mercedes-benz/190` | `mercedes 190e`|
+
+Definiti una volta sola in `utils.py` (`TARGETS`) e usati da tutti gli scraper.
+Per aggiungere un modello basta una voce lì.
+
+Su AutoScout E36, E46 ed E92 condividono lo slug `serie-3`: a distinguerli è
+solo la finestra anni, e le sovrapposizioni producono doppioni che la
+deduplica per `listing_id` assorbe.
+
+Lo score sul prezzo è **relativo al tetto del target**: una E92 a €7.000 su un
+tetto di €12.000 vale come una E36 a €3.500 su un tetto di €6.000.
 - **Duplicati**: un listing_id per annuncio — mai scrivere lo stesso due volte
 - **Frequenza**: ogni 2 ore via GitHub Actions (gratuito, nessun servizio a pagamento)
 

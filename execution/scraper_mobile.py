@@ -12,7 +12,7 @@ from datetime import datetime
 
 from utils import (
     geocode_city, distance_from_bergamo, make_listing_id, parse_price, parse_km, safe_int,
-    MAX_DISTANCE_KM, MAX_PRICE, YEAR_MIN, YEAR_MAX,
+    MAX_DISTANCE_KM, TARGETS, passes_target,
 )
 
 HEADERS = {
@@ -24,19 +24,12 @@ HEADERS = {
     "Referer": "https://www.autoscout24.de/",
 }
 
-SEARCHES = [
-    {"make": "bmw",           "year_from": YEAR_MIN, "year_to": YEAR_MAX, "label": "BMW E36"},
-    {"make": "audi",          "year_from": YEAR_MIN, "year_to": YEAR_MAX, "label": "Audi B4/B5"},
-    {"make": "mercedes-benz", "year_from": YEAR_MIN, "year_to": 1993,     "label": "Mercedes 190E"},
-]
-
-
-def _build_url(search, page):
+def _build_url(target, page):
     return (
-        f"https://www.autoscout24.de/lst/{search['make']}"
+        f"https://www.autoscout24.de/lst/{target['as24_slug']}"
         f"?atype=C&cy=I&damaged_listing=exclude"
-        f"&fregfrom={search['year_from']}&fregto={search['year_to']}"
-        f"&priceto={MAX_PRICE}&sort=standard&ustate=N%2CU"
+        f"&fregfrom={target['year_from']}&fregto={target['year_to']}"
+        f"&priceto={target['max_price']}&sort=standard&ustate=N%2CU"
         f"&page={page}"
     )
 
@@ -99,13 +92,13 @@ def scrape_mobile():
     session = requests.Session()
     session.headers.update(HEADERS)
 
-    for search in SEARCHES:
-        label = search["label"]
-        print(f"  AutoScout24.de → {label}...")
+    for target in TARGETS:
+        print(f"  AutoScout24.de → {target['label']} "
+              f"({target['year_from']}-{target['year_to']}, max {target['max_price']}€)...")
 
         for page in range(1, 4):
             try:
-                url = _build_url(search, page)
+                url = _build_url(target, page)
                 resp = session.get(url, timeout=25)
                 resp.raise_for_status()
                 soup = BeautifulSoup(resp.text, "html.parser")
@@ -121,11 +114,8 @@ def scrape_mobile():
                 for item in raw_items:
                     try:
                         price = _get_price(item)
-                        if not price or price > MAX_PRICE:
-                            continue
-
                         year = _get_year(item)
-                        if year and not (YEAR_MIN <= year <= YEAR_MAX):
+                        if not passes_target(year, price, target):
                             continue
 
                         km = _get_km(item)
@@ -161,7 +151,8 @@ def scrape_mobile():
                             "seller": "", "phone": "",
                             "listing_id": make_listing_id(url_l, title, price),
                             "found_at": datetime.now().isoformat(),
-                            "label": label,
+                            "label": target["label"],
+                            "target_key": target["key"],
                         })
                         page_count += 1
                     except Exception as e:
