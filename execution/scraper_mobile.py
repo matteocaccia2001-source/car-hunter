@@ -63,9 +63,20 @@ def _get_price(item):
     return safe_int(p)
 
 
+def _get_detail(item, icon):
+    for d in item.get("vehicleDetails") or []:
+        if isinstance(d, dict) and d.get("iconName") == icon:
+            return d.get("data") or ""
+    return ""
+
+
 def _get_year(item):
+    """Come su AutoScout24.it: l'anno sta in tracking.firstRegistration e nel
+    badge vehicleDetails, non piu' dentro vehicle.*"""
     vehicle = item.get("vehicle", {}) or {}
-    for c in [vehicle.get("firstRegistrationDate"), vehicle.get("firstRegistration"),
+    tracking = item.get("tracking", {}) or {}
+    for c in [tracking.get("firstRegistration"), _get_detail(item, "calendar"),
+              vehicle.get("firstRegistrationDate"), vehicle.get("firstRegistration"),
               vehicle.get("firstRegistrationYear"), vehicle.get("year")]:
         if c is None:
             continue

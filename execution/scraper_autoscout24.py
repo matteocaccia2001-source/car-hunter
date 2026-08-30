@@ -81,10 +81,28 @@ def _get_price(item):
     return safe_int(p)
 
 
+def _get_detail(item, icon):
+    """vehicleDetails e' una lista di badge:
+    [{"data": "05/1999", "iconName": "calendar"}, {"data": "97.900 km", ...}]"""
+    for d in item.get("vehicleDetails") or []:
+        if isinstance(d, dict) and d.get("iconName") == icon:
+            return d.get("data") or ""
+    return ""
+
+
 def _get_year(item):
-    """Extract year — AS24 uses 'firstRegistrationDate' = '1993-03' or similar."""
+    """Anno di immatricolazione.
+
+    AutoScout ha spostato il dato fuori da vehicle.*: ora vive in
+    tracking.firstRegistration ("05-1999") e nel badge vehicleDetails con
+    iconName "calendar" ("05/1999"). Cercarlo solo in vehicle.* restituiva
+    0 su ogni annuncio, disattivando di fatto il filtro sugli anni.
+    """
     vehicle = item.get("vehicle", {}) or {}
+    tracking = item.get("tracking", {}) or {}
     candidates = [
+        tracking.get("firstRegistration"),
+        _get_detail(item, "calendar"),
         vehicle.get("firstRegistrationDate"),
         vehicle.get("firstRegistration"),
         vehicle.get("firstRegistrationYear"),
@@ -112,15 +130,25 @@ def _get_year(item):
 
 
 def _get_km(item):
+    """Chilometri. Il campo attuale e' vehicle.mileageInKm; gli altri sono
+    fallback storici piu' il badge vehicleDetails."""
     vehicle = item.get("vehicle", {}) or {}
+    v = safe_int(vehicle.get("mileageInKm"))
+    if v:
+        return v
     ml = vehicle.get("mileage")
     if isinstance(ml, dict):
         for k in ["raw", "value", "km"]:
             v = safe_int(ml.get(k))
             if v: return v
-        # parse from formatted string
         return parse_km(ml.get("formatted") or ml.get("mileageFormatted") or "")
-    return safe_int(ml or vehicle.get("km") or item.get("mileage") or 0)
+    v = safe_int(ml or vehicle.get("km") or item.get("mileage") or 0)
+    if v:
+        return v
+    v = safe_int((item.get("tracking") or {}).get("mileage"))
+    if v:
+        return v
+    return parse_km(_get_detail(item, "mileage_odometer"))
 
 
 def _parse_item_json(item, target, debug=False):
