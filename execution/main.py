@@ -11,7 +11,7 @@ from scraper_aste import scrape_aste
 from scraper_moto import scrape_moto
 from sheets_writer import write_listings, write_auctions, write_motos
 from scorer import score_listing
-from notifier import notify_high_score_listings, can_notify, MIN_SCORE
+from notifier import notify_high_score_listings, can_notify, channel_name, MIN_SCORE
 from utils import TARGETS_BY_KEY, passes_target, MAX_PRICE, YEAR_MIN, YEAR_MAX
 
 
@@ -93,9 +93,10 @@ def main():
     if can_notify() and new_listings:
         high_score = [l for l in new_listings if (l.get("score") or 0) >= MIN_SCORE]
         if high_score:
-            print(f"\n📱 Invio {len(high_score)} notifiche WhatsApp (score >= {MIN_SCORE})...")
+            print(f"\n📱 Invio {len(high_score)} notifiche via {channel_name()} "
+                  f"(score >= {MIN_SCORE})...")
             sent = notify_high_score_listings(new_listings)
-            print(f"  ✅ {sent} messaggi inviati")
+            print(f"  ✅ {sent}/{len(high_score)} messaggi recapitati")
 
     # ─── MOTO (Honda CRF 450) RIMOSSO ──────────────────────────────────
     written_moto = 0
